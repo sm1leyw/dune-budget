@@ -1,113 +1,231 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useMemo } from "react";
 import { useData } from "../../context/DataContext";
-import Link from "next/link";
-import { Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export default function DashboardPage() {
   const { currentUser, requests } = useData();
+  const router = useRouter();
 
-  const myRequests = requests.filter(
-    (r) => r.applicantUsername === currentUser.username
-  );
+  // ตรวจสอบการ Login หากไม่มี currentUser ให้กลับไปหน้าเข้าสู่ระบบ
+  useEffect(() => {
+    if (!currentUser) {
+      router.replace("/login");
+    }
+  }, [currentUser, router]);
+
+  // กรองเฉพาะคำขอของตนเองเท่านั้น (ทุก Role จะเห็นเฉพาะงานที่ตัวเองยื่น)
+  const myRequests = useMemo(() => {
+    if (!currentUser) return [];
+    return requests.filter((req) => req.requesterId === currentUser.id);
+  }, [requests, currentUser]);
+
+  // คำนวณตัวเลขสำหรับ 4 การ์ดสรุป
+  const totalCount = myRequests.length;
+  const editCount = myRequests.filter((r) => r.status === "step_back").length;
+  const pendingCount = myRequests.filter((r) => r.status === "pending").length;
+  const totalAmount = myRequests.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+
+  // คำนวณจำนวนโครงการที่ไม่ซ้ำกัน
+  const uniqueProjectsCount = new Set(myRequests.map((r) => r.title)).size;
+
+  if (!currentUser) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] text-slate-400">
+        กำลังโหลดข้อมูล...
+      </div>
+    );
+  }
+
+  // ตัวช่วยแสดงสีและข้อความของสถานะตามรูปภาพ
+  const renderStatusBadge = (status: string) => {
+    switch (status) {
+      case "pending":
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-amber-500 text-white">
+            • รออนุมัติ
+          </span>
+        );
+      case "completed":
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-600 text-white">
+            • จ่ายแล้ว
+          </span>
+        );
+      case "step_back":
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-rose-500 text-white">
+            • แก้ไข
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-500 text-white">
+            • อนุมัติ
+          </span>
+        );
+    }
+  };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="p-8 space-y-6 max-w-7xl mx-auto">
+      {/* การ์ดต้อนรับด้านบน */}
+      <div className="bg-[#bbf0dc]/40 border border-[#9ae6c9] rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <span className="text-xs text-slate-500">ตำแหน่ง: {currentUser.department}</span>
-          <h1 className="text-2xl font-bold text-slate-800">{currentUser.fullname}</h1>
-          <p className="text-sm text-slate-500">ติดตามคำขอเบิกและงบประมาณของโครงการ</p>
+          <span className="text-xs text-slate-600 font-medium">
+            ตำแหน่ง: {currentUser.department || "พนักงาน"}
+          </span>
+          <h1 className="text-2xl font-bold text-slate-800 mt-1">
+            {currentUser.name}
+          </h1>
+          <p className="text-xs text-slate-500 mt-1">
+            ติดตามคำขอเบิกและงบประมาณของโครงการ
+          </p>
         </div>
-        <Link
-          href="/reimburse/create"
-          className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors shadow-sm"
+
+        <button
+          onClick={() => router.push("/reimburse/create")}
+          className="flex items-center justify-center gap-1.5 px-5 py-2.5 bg-[#00684a] hover:bg-[#00553c] text-white text-sm font-medium rounded-xl transition shadow-sm"
         >
-          <Plus className="w-4 h-4" />
+          <span>+</span>
           <span>สร้างคำขอเบิก</span>
-        </Link>
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs text-slate-500">คำขอทั้งหมด</div>
-          <div className="text-2xl font-bold text-slate-800 mt-1">{myRequests.length} รายการ</div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs text-slate-500">แก้ไข</div>
-          <div className="text-2xl font-bold text-amber-600 mt-1">
-            {myRequests.filter((r) => r.status === "rejected").length} รายการ
+      {/* สรุป 4 กล่อง (Cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* กล่องที่ 1: คำขอทั้งหมด */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <p className="text-xs text-slate-500 font-medium">คำขอทั้งหมด</p>
+          <div className="flex items-baseline gap-2 mt-4">
+            <span className="text-3xl font-extrabold text-slate-800">{totalCount}</span>
+            <span className="text-sm font-medium text-slate-700">รายการ</span>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs text-slate-500">รออนุมัติ</div>
-          <div className="text-2xl font-bold text-blue-600 mt-1">
-            {myRequests.filter((r) => r.status === "pending").length} รายการ
+
+        {/* กล่องที่ 2: แก้ไข */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <p className="text-xs text-slate-500 font-medium">แก้ไข</p>
+          <div className="flex items-baseline gap-2 mt-4">
+            <span className="text-3xl font-extrabold text-slate-800">{editCount}</span>
+            <span className="text-sm font-medium text-slate-700">รายการ</span>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="text-xs text-slate-500">ยอดที่ขอเบิกทั้งหมด</div>
-          <div className="text-2xl font-bold text-emerald-700 mt-1">
-            {myRequests.reduce((sum, r) => sum + r.totalAmount, 0).toLocaleString()} บาท
+
+        {/* กล่องที่ 3: รออนุมัติ */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <p className="text-xs text-slate-500 font-medium">รออนุมัติ</p>
+          <div className="flex items-baseline gap-2 mt-4">
+            <span className="text-3xl font-extrabold text-slate-800">{pendingCount}</span>
+            <span className="text-sm font-medium text-slate-700">รายการ</span>
+          </div>
+        </div>
+
+        {/* กล่องที่ 4: ยอดที่ขอเบิกทั้งหมด */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <p className="text-xs text-slate-500 font-medium">ยอดที่ขอเบิกทั้งหมด</p>
+          <div className="mt-3">
+            <div className="text-2xl font-extrabold text-[#007a55]">
+              {totalAmount.toLocaleString()}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              {uniqueProjectsCount} โครงการ
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 font-semibold text-slate-800">
-          คำขอล่าสุด
-        </div>
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-600 text-xs border-b border-slate-200">
-            <tr>
-              <th className="p-3.5">โครงการ</th>
-              <th className="p-3.5">หมวดหมู่</th>
-              <th className="p-3.5">ชื่อผู้ขอเบิก</th>
-              <th className="p-3.5">วันที่</th>
-              <th className="p-3.5 text-right">จำนวนเงิน</th>
-              <th className="p-3.5 text-center">สถานะ</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {myRequests.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="p-6 text-center text-slate-400">
-                  ยังไม่มีประวัติการยื่นคำขอ
-                </td>
+      {/* รายการคำขอล่าสุด */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+        <h2 className="text-base font-bold text-slate-800">คำขอล่าสุด</h2>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs text-slate-600">
+            <thead>
+              <tr className="text-slate-400 border-b border-slate-100 font-normal">
+                <th className="pb-3 px-3">โครงการ</th>
+                <th className="pb-3 px-3">หมวดหมู่</th>
+                <th className="pb-3 px-3">ชื่อผู้ขอเบิก</th>
+                <th className="pb-3 px-3">วันที่</th>
+                <th className="pb-3 px-3">จำนวนเงิน</th>
+                <th className="pb-3 px-3 text-center">สถานะ</th>
               </tr>
-            ) : (
-              myRequests.map((req) => (
-                <tr key={req.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-3.5 font-medium text-slate-800">{req.projectName}</td>
-                  <td className="p-3.5 text-slate-600">{req.categoryName}</td>
-                  <td className="p-3.5 text-slate-600">{req.applicantName}</td>
-                  <td className="p-3.5 text-slate-500">{req.createdAt}</td>
-                  <td className="p-3.5 text-right font-semibold text-slate-800">
-                    {req.totalAmount.toLocaleString()} ฿
-                  </td>
-                  <td className="p-3.5 text-center">
-                    <span
-                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                        req.status === "approved"
-                          ? "bg-emerald-100 text-emerald-800"
-                          : req.status === "rejected"
-                          ? "bg-rose-100 text-rose-800"
-                          : "bg-amber-100 text-amber-800"
-                      }`}
-                    >
-                      {req.status === "approved"
-                        ? "อนุมัติแล้ว"
-                        : req.status === "rejected"
-                        ? "ส่งกลับแก้ไข"
-                        : "รออนุมัติ"}
-                    </span>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {myRequests.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                    ยังไม่มีรายการคำขอเบิกเงินของคุณ
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                myRequests.map((req) => (
+                  <tr key={req.id} className="hover:bg-slate-50/50 transition-colors">
+                    {/* คอลัมน์โครงการ */}
+                    <td className="py-4 px-3">
+                      <div className="font-medium text-slate-800">{req.title}</div>
+                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        {req.requestNumber}
+                      </div>
+                    </td>
+
+                    {/* หมวดหมู่ */}
+                    <td className="py-4 px-3 text-slate-500">
+                      ค่าสถานที่/การเดินทาง
+                    </td>
+
+                    {/* ชื่อผู้ขอเบิก */}
+                    <td className="py-4 px-3 text-slate-700">
+                      {req.requesterName}
+                    </td>
+
+                    {/* วันที่ */}
+                    <td className="py-4 px-3 text-slate-500">
+                      {new Date(req.createdAt).toLocaleDateString("th-TH")}
+                    </td>
+
+                    {/* จำนวนเงิน */}
+                    <td className="py-4 px-3 font-semibold text-slate-800">
+                      {req.totalAmount.toLocaleString()}
+                    </td>
+
+                    {/* สถานะและการจัดการ */}
+                    <td className="py-4 px-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        {renderStatusBadge(req.status)}
+                        
+                        {req.status === "step_back" ? (
+                          <>
+                            <button
+                              onClick={() => alert(`เหตุผลที่ตีกลับ: ${req.stepBackNote || "ไม่มีหมายเหตุ"}`)}
+                              className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-[11px] font-medium transition"
+                            >
+                              ดูหมายเหตุ
+                            </button>
+                            <button
+                              onClick={() => router.push(`/reimburse/create?editId=${req.id}`)}
+                              className="px-2 py-1 bg-[#00684a] hover:bg-[#00553c] text-white rounded text-[11px] font-medium transition"
+                            >
+                              แก้ไข
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => router.push(`/reimburse/create?viewId=${req.id}`)}
+                            className="px-2 py-1 bg-[#00684a] hover:bg-[#00553c] text-white rounded text-[11px] font-medium transition"
+                          >
+                            ตรวจสอบ
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
