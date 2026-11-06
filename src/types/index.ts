@@ -1,88 +1,45 @@
-export type UserRole = "employee" | "dept_head" | "executive" | "accountant";
+// สิทธิ์ผู้ใช้งานในระบบทั้ง 4 บทบาท
+export type UserRole = "EMPLOYEE" | "DEPT_HEAD" | "EXECUTIVE" | "ACCOUNTANT";
+
+// ขั้นตอนการอนุมัติปัจจุบันของคำขอ
+export type RequestStep = 
+  | "WAITING_DEPT_HEAD"   // รอหัวหน้าแผนกอนุมัติ
+  | "WAITING_EXECUTIVE"   // รอผู้บริหารอนุมัติ
+  | "WAITING_ACCOUNTANT"  // รอตราวจสอบ/ทำจ่ายที่บัญชี
+  | "COMPLETED"           // จ่ายเงินเสร็จสิ้น
+  | "REJECTED";           // ถูกส่งกลับแก้ไข/ปฏิเสธ
 
 export interface User {
-  username: string;
-  fullname: string;
-  department: string;
-  role: UserRole;
-  employeeId: string;
+  id: string;
+  name: string;
   email: string;
+  role: UserRole;
+  department: string;
+  position: string;
 }
 
-export interface ProjectCategory {
+export interface User {
   id: string;
   name: string;
-  allocated: number;
-  used: number;
-  reserved: number;
-}
-
-export interface ProjectDoc {
-  name: string;
-  type: string;
-  dataUrl: string;
-}
-
-export interface Project {
-  id: string;
-  name: string;
-  scope: "company" | "dept";
-  departments: string[];
-  startDate: string;
-  endDate: string;
-  totalBudget: number;
-  usedBudget: number;
-  reservedBudget: number;
-  status: "active" | "cancelled";
-  docs: ProjectDoc[];
-  categories: ProjectCategory[];
-}
-
-export interface RequestItem {
-  id: string;
-  description: string;
-  date: string;
-  amount: number;
-  fileName?: string;
-  fileData?: string;
-}
-
-export interface TravelItem {
-  id: string;
-  date: string;
-  fromTo: string;
-  oil: number;
-  taxi: number;
-  bts: number;
-  parking: number;
-  otherText: string;
-  otherAmt: number;
-  total: number;
-  fileName?: string;
-  fileData?: string;
+  email: string;
+  role: UserRole;
+  department: string;
+  position: string;
 }
 
 export interface ReimburseRequest {
-  id: string;
-  applicantUsername: string;
-  applicantName: string;
-  applicantDepartment: string;
-  tableType: "table_a" | "table_b";
-  advanceRefId?: string;
-  projectId: string;
-  projectName: string;
-  categoryId: string;
-  categoryName: string;
-  startDate: string;
-  endDate: string;
-  notes: string;
-  delayReason?: string;
-  generalItems: RequestItem[];
-  travelItems: TravelItem[];
-  totalAmount: number;
-  borrowedAmount?: number;
-  status: "pending" | "approved" | "rejected";
-  currentStepRole: UserRole;
-  rejectReason?: string;
-  createdAt: string;
+  id: string;                      // รหัสคำขอ เช่น REQ-2026-0001
+  projectCode: string;             // รหัสโครงการ เช่น DUNE-001
+  projectName: string;             // ชื่อโครงการ
+  category: string;                // หมวดหมู่ค่าใช้จ่าย
+  requesterEmail: string;          // อีเมลผู้ยื่นขอเบิก
+  requesterName: string;           // ชื่อผู้ยื่นขอเบิก
+  requesterRole: UserRole;         // สิทธิ์ของผู้ยื่นขอเบิก
+  requesterDepartment: string;     // แผนกของผู้ยื่นขอเบิก
+  totalAmount: number;             // ยอดเงินรวมที่ขอเบิก
+  purpose: string;                 // รายละเอียดวัตถุประสงค์
+  createdAt: string;               // วันที่ยื่น
+  currentStep: RequestStep;        // ขั้นตอนปัจจุบันใน Flow
+  rejectReason?: string;           // เหตุผลการส่งกลับแก้ไข (ถ้ามี)
+  items: ExpenseItem[];            // รายการค่าใช้จ่ายย่อย
 }
