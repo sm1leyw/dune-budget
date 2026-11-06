@@ -6,18 +6,18 @@ import { useData } from "../../context/DataContext";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("phuvaness.imr@spumail.net");
-  const [password, setPassword] = useState("123456");
+  const [password, setPassword] = useState("123");
   const [error, setError] = useState("");
   const { login } = useData();
   const router = useRouter();
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const success = login(email);
+    const success = login(email, password);
     if (success) {
       router.push("/dashboard");
     } else {
-      setError("ไม่พบอีเมลนี้ในระบบ (ทดสอบ: phuvaness.imr@spumail.net, somchai@spumail.net, sommai@spumail.net)");
+      setError("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
     }
   };
 
@@ -66,8 +66,9 @@ export default function LoginPage() {
         <div className="mt-6 border-t pt-4 text-xs text-gray-500 space-y-1">
           <p className="font-semibold">สลับ Role ทดสอบได้ด้วยอีเมล:</p>
           <p>• พนักงาน: phuvaness.imr@spumail.net</p>
-          <p>• ผู้อนุมัติ: somchai@spumail.net</p>
-          <p>• บัญชี/การเงิน: sommai@spumail.net</p>
+          <p>• บัญชี: nanthipat.jen@spumail.net</p>
+          <p>• หัวหน้าแผนก: montawat.cha@spumail.net</p>
+          <p>• ผู้บริหาร: suriya.saa@spumail.net</p>
         </div>
       </div>
     </div>

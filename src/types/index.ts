@@ -18,13 +18,11 @@ export interface User {
   position: string;
 }
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  department: string;
-  position: string;
+export interface ExpenseItem {
+  id: string;                      // รหัสรายการย่อย เช่น item-1
+  name: string;                    // ชื่อรายการค่าใช้จ่าย
+  amount: number;                  // จำนวนเงินของรายการ
+  date: string;                    // วันที่ของรายการ
 }
 
 export interface ReimburseRequest {

@@ -5,7 +5,7 @@ import { User, ReimburseRequest, UserRole, RequestStep } from "../types";
 
 interface DataContextType {
   currentUser: User | null;
-  login: (email: string) => boolean;
+  login: (email: string, password: string) => boolean;
   logout: () => void;
   requests: ReimburseRequest[];
   createRequest: (
@@ -21,30 +21,34 @@ const MOCK_USERS: (User & { password?: string })[] = [
     id: "EMP-001",
     name: "ภูวเนศวร์ อิ่มฤทธา",
     email: "phuvaness.imr@spumail.net",
-    role: "ACCOUNTANT",
-    department: "ฝ่ายการเงินและบัญชี",
-    position: "พนักงานบัญชี",
+    password: "123",
+    role: "EMPLOYEE",
+    department: "ฝ่ายเทคโนโลยีสารสนเทศ IT",
+    position: "พนักงาน IT",
   },
   {
     id: "EMP-002",
-    name: "มนธวัฒน์ ชาญณรงค์",
+    name: "Montawat",
     email: "montawat.cha@spumail.net",
+    password: "123",
     role: "DEPT_HEAD",
     department: "ฝ่ายเทคโนโลยีสารสนเทศ IT",
     position: "หัวหน้าแผนก IT",
   },
   {
     id: "EMP-003",
-    name: "นันทิพัฒน์ เจนจัด",
+    name: "นันทิพัฒน์ จ.",
     email: "nanthipat.jen@spumail.net",
+    password: "123",
     role: "ACCOUNTANT",
     department: "ฝ่ายการเงินและบัญชี",
     position: "เจ้าหน้าที่บัญชี",
   },
   {
     id: "EMP-004",
-    name: "สุริยา สาสะเดาะห์",
+    name: "สุริยะ ส.",
     email: "suriya.saa@spumail.net",
+    password: "123",
     role: "EXECUTIVE",
     department: "ฝ่ายบริหาร",
     position: "ผู้บริหารระดับสูง",
@@ -60,7 +64,7 @@ const INITIAL_REQUESTS: ReimburseRequest[] = [
     category: "ค่าสถานที่/การเดินทาง",
     requesterEmail: "phuvaness.imr@spumail.net",
     requesterName: "ภูวเนศวร์ อิ่มฤทธา",
-    requesterRole: "ACCOUNTANT",
+    requesterRole: "EMPLOYEE",
     requesterDepartment: "ฝ่ายเทคโนโลยีสารสนเทศ IT",
     totalAmount: 4500,
     purpose: "ค่าเดินทางออกปฏิบัติงานด่วน",
@@ -75,7 +79,7 @@ const INITIAL_REQUESTS: ReimburseRequest[] = [
     category: "ค่าสถานที่และอาหารสัมมนา",
     requesterEmail: "phuvaness.imr@spumail.net",
     requesterName: "ภูวเนศวร์ อิ่มฤทธา",
-    requesterRole: "ACCOUNTANT",
+    requesterRole: "EMPLOYEE",
     requesterDepartment: "ฝ่ายเทคโนโลยีสารสนเทศ IT",
     totalAmount: 32000,
     purpose: "ค่าเช่าห้องประชุมและจัดเลี้ยงสัมมนา",
@@ -98,10 +102,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (savedRequests) setRequests(JSON.parse(savedRequests));
   }, []);
 
-  const login = (email: string): boolean => {
-    const user = MOCK_USERS.find((u) => u.email.trim().toLowerCase() === email.trim().toLowerCase());
+  const login = (email: string, password: string): boolean => {
+    const user = MOCK_USERS.find(
+      (u) => u.email.trim().toLowerCase() === email.trim().toLowerCase() && u.password === password
+    );
     if (user) {
-      const { password, ...safeUser } = user;
+      const { password: _password, ...safeUser } = user;
       setCurrentUser(safeUser);
       localStorage.setItem("dune_user", JSON.stringify(safeUser));
       return true;

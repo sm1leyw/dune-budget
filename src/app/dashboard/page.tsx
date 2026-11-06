@@ -47,14 +47,14 @@ export default function DashboardPage() {
         {/* User Profile Card ขวาบน */}
         <div className="flex items-center gap-3 bg-white px-3.5 py-1.5 rounded-full border border-gray-200 shadow-sm">
           <div className="w-8 h-8 rounded-full bg-[#1F5441] text-white flex items-center justify-center font-bold text-xs">
-            {currentUser?.name ? currentUser.name.charAt(0) : "ภ"}
+            {currentUser?.name ? currentUser.name.charAt(0) : ""}
           </div>
           <div className="text-left">
             <p className="text-xs font-bold text-gray-800 leading-tight">
-              {currentUser?.name || "ภูวเนศวร์ อิ่มฤทธา"}
+              {currentUser?.name ?? "-"}
             </p>
             <p className="text-[10px] text-gray-500 leading-tight">
-              {currentUser?.department || "ฝ่ายการเงินและบัญชี"}
+              {currentUser?.department ?? "-"}
             </p>
           </div>
           <span className="text-gray-400 text-xs font-bold ml-1">&gt;</span>
@@ -65,10 +65,10 @@ export default function DashboardPage() {
       <div className="bg-[#D8EFE3] border border-[#BCE1CE] rounded-2xl p-6 mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <p className="text-xs text-[#285E49] font-medium mb-1">
-            ตำแหน่ง: {currentUser?.position || "พนักงานบัญชี"}
+            ตำแหน่ง: {currentUser?.position ?? "-"}
           </p>
           <h2 className="text-2xl font-bold text-[#1F5441] mb-1">
-            {currentUser?.name || "ภูวเนศวร์ อิ่มฤทธา"}
+            {currentUser?.name ?? "-"}
           </h2>
           <p className="text-xs text-gray-600">ติดตามคำขอเบิกและงบประมาณของโครงการ</p>
         </div>

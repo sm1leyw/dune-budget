@@ -40,10 +40,10 @@ export default function Sidebar() {
         {/* ข้อมูลโปรไฟล์ผู้ใช้งาน (วงแดงซ้าย) */}
         <div className="p-4 bg-[#11352c] border-b border-[#18463b]">
           <div className="text-xs text-slate-300">
-            ตำแหน่ง: {currentUser?.department || "ฝ่ายการเงินและบัญชี"}
+            แผนก: {currentUser?.department ?? "-"}
           </div>
           <div className="font-semibold text-sm text-emerald-300">
-            {currentUser?.name || "ภูวเนศวร์ อิ่มฤทธา"}
+            {currentUser?.name ?? "-"}
           </div>
         </div>
 
