@@ -4,34 +4,41 @@
  * คนที่ 1 วางโครงให้ คนที่ 4 ดูแลต่อ
  *
  * ส่งออก:
- *   approveRequest(id, user)          → หัวหน้า/ผู้บริหาร "อนุมัติ" หรือ บัญชี "ทำจ่าย"
- *   sendBackRequest(id, user, note)   → ส่งกลับให้ผู้ยื่นแก้ไข (ต้องมีหมายเหตุ)
- *
- * ทั้งสองฟังก์ชันตรวจสิทธิ์ด้วย isMyTurn() ก่อน ถ้าไม่ใช่ตาของผู้ใช้จะโยน Error
+ *   approveRequest(id, user, paymentData)  → หัวหน้า/ผู้บริหาร "อนุมัติ" หรือ บัญชี "ทำจ่าย" พร้อมแนบสลิป
+ *   sendBackRequest(id, user, note)        → ส่งกลับให้ผู้ยื่นแก้ไข (ต้องมีหมายเหตุ)
  */
 import { getStatusAfterApprove, isMyTurn } from "@/lib/workflow";
 import { nowISO } from "@/lib/format";
 import { getRequestById, requestsStore } from "@/store/requests";
-import type { User } from "@/types";
+import type { User, PaymentInfo } from "@/types";
 
 /**
  * อนุมัติ (หัวหน้า/ผู้บริหาร) หรือทำจ่าย (บัญชี)
- * รับเข้า: id คำขอ, ผู้ใช้ที่ login · โยน Error ถ้าไม่ใช่ตาของผู้ใช้
+ * รับเข้า: id คำขอ, ผู้ใช้ที่ login, ข้อมูลการจ่ายเงิน(เฉพาะบัญชี) · โยน Error ถ้าไม่ใช่ตาของผู้ใช้
  */
-export function approveRequest(id: string, user: User): void {
+export function approveRequest(id: string, user: User, paymentData?: PaymentInfo): void {
   const current = getRequestById(id);
-  if (!current || !isMyTurn(current, user)) throw new Error("คุณไม่มีสิทธิ์ดำเนินการกับคำขอนี้");
+
+  if (!current || !isMyTurn(current, user)) {
+    throw new Error("คุณไม่มีสิทธิ์ดำเนินการกับคำขอนี้");
+  }
+
   const time = nowISO();
-  const action = current.status === "WAITING_ACCOUNTANT" ? "PAY" : "APPROVE";
+  const nextStatus = getStatusAfterApprove(current.status);
+  const action = user.role === "ACCOUNTANT" ? "PAY" : "APPROVE";
+
+  // บันทึกข้อมูลลง store
   requestsStore.setState((prev) =>
     prev.map((r) =>
       r.id === id
         ? {
-            ...r,
-            status: getStatusAfterApprove(r.status),
-            updatedAt: time,
-            history: [...r.history, { action, byUserId: user.id, at: time }],
-          }
+          ...r,
+          status: nextStatus,
+          updatedAt: time,
+          history: [...r.history, { action, byUserId: user.id, at: time }],
+          // ถ้ามี paymentData ส่งมาด้วย ให้เพิ่มฟิลด์ paymentInfo เข้าไปใน object
+          ...(paymentData ? { paymentInfo: paymentData } : {})
+        }
         : r,
     ),
   );
@@ -45,17 +52,18 @@ export function sendBackRequest(id: string, user: User, note: string): void {
   const current = getRequestById(id);
   if (!current || !isMyTurn(current, user)) throw new Error("คุณไม่มีสิทธิ์ดำเนินการกับคำขอนี้");
   if (!note.trim()) throw new Error("กรุณาระบุหมายเหตุการส่งกลับแก้ไข");
+
   const time = nowISO();
   requestsStore.setState((prev) =>
     prev.map((r) =>
       r.id === id
         ? {
-            ...r,
-            status: "SENT_BACK",
-            sentBackNote: note.trim(),
-            updatedAt: time,
-            history: [...r.history, { action: "SEND_BACK", byUserId: user.id, at: time, note: note.trim() }],
-          }
+          ...r,
+          status: "SENT_BACK",
+          sentBackNote: note.trim(),
+          updatedAt: time,
+          history: [...r.history, { action: "SEND_BACK", byUserId: user.id, at: time, note: note.trim() }],
+        }
         : r,
     ),
   );
