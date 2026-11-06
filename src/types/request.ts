@@ -43,6 +43,15 @@ export interface RequestEvent {
   note?: string;
 }
 
+export interface PaymentInfo {
+  method: "CASH" | "CHECK" | "TRANSFER";
+  refNumber?: string;
+  amount: number;
+  date: string;
+  fileName: string;
+}
+
+
 export interface ReimburseRequest {
   /** รหัสคำขอ เช่น "REQ-2026-0001" (สร้างด้วย nextRequestId()) */
   id: string;
@@ -70,4 +79,21 @@ export interface ReimburseRequest {
   updatedAt: string;
   /** ประวัติการกระทำ เรียงจากเก่าไปใหม่ */
   history: RequestEvent[];
+}
+
+// เพิ่ม type นี้เข้าไปในไฟล์ types/request.ts
+export interface PaymentInfo {
+  method: "CASH" | "CHECK" | "TRANSFER";
+  refNumber?: string;
+  amount: number;
+  date: string;
+  fileName: string;
+  fileData?: string; // <--- เพิ่มบรรทัดนี้เข้าไป
+}
+
+// แล้วไปหา interface ReimburseRequest เติมฟิลด์ paymentInfo เข้าไป (บรรทัดล่างๆ)
+export interface ReimburseRequest {
+  // ... (โค้ดเดิม) ...
+  history: RequestEvent[];
+  paymentInfo?: PaymentInfo; // <--- เพิ่มบรรทัดนี้เข้าไป
 }
