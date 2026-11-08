@@ -5,12 +5,15 @@
  *
  * ส่งออก:
  *   requestsStore                      store ดิบ (ใช้ใน store อื่น เช่น approvals.ts)
- *   useRequests()                      hook → ReimburseRequest[] ทั้งหมด
- *   getRequestById(id)                 → ReimburseRequest | undefined
- *   useRequest(id)                     hook → ReimburseRequest | undefined
+ *   useRequests()                      hook → ReimburseRequest[] ทั้งหมด (ไม่รวมที่ยกเลิกแล้ว)
+ *   getRequestById(id)                 → ReimburseRequest | undefined (ข้อมูลดิบ รวมที่ยกเลิก — ใช้ตอนแก้ข้อมูล)
+ *   useRequest(id)                     hook → ReimburseRequest | undefined (ยกเลิกแล้ว = undefined)
  *   createRequest(input, user)         → ReimburseRequest ที่สร้าง (คนที่ 2 เรียกตอนกดยืนยัน)
  *   resubmitRequest(id, input, user)   → แก้ไขแล้วยื่นใหม่ (คนที่ 2 ใช้ในหน้าแก้ไข)
  *   cancelRequest(id, user)            → ยกเลิกคำขอ (ได้เฉพาะตอนถูกส่งกลับ)
+ *
+ * คำขอที่ยกเลิกแล้ว "หายไป" จากทุกหน้า (ตาม Figma) แต่ยังเก็บใน requestsStore
+ * เพื่อไม่ให้รหัสคำขอถูกใช้ซ้ำ
  *
  * ทุกฟังก์ชันที่แก้ข้อมูลจะ "โยน Error" ถ้าทำไม่ได้ → หน้าจอควร try/catch แล้วแสดงข้อความ
  */
@@ -29,9 +32,10 @@ export type RequestInput = Pick<
   "type" | "projectId" | "categoryId" | "purpose" | "startDate" | "endDate" | "advanceRefId"
 > & { items: ExpenseItem[] };
 
-/** hook: คำขอทั้งหมด (กรองต่อด้วย useMemo ในหน้าของตัวเอง) */
+/** hook: คำขอทั้งหมดที่ยังไม่ถูกยกเลิก (กรองต่อด้วย useMemo ในหน้าของตัวเอง) */
 export function useRequests(): ReimburseRequest[] {
-  return requestsStore.useState();
+  const all = requestsStore.useState();
+  return useMemo(() => all.filter((r) => r.status !== "CANCELLED"), [all]);
 }
 
 /** หาคำขอจาก id — รับเข้า: "REQ-2026-0001" · ส่งออก: คำขอ หรือ undefined */
@@ -39,7 +43,7 @@ export function getRequestById(id: string): ReimburseRequest | undefined {
   return requestsStore.getState().find((r) => r.id === id);
 }
 
-/** hook: คำขอ 1 รายการ (อัปเดตเองเมื่อสถานะเปลี่ยน) */
+/** hook: คำขอ 1 รายการ (อัปเดตเองเมื่อสถานะเปลี่ยน · ยกเลิกแล้วคืน undefined เหมือนไม่พบ) */
 export function useRequest(id: string): ReimburseRequest | undefined {
   const all = useRequests();
   return useMemo(() => all.find((r) => r.id === id), [all, id]);
