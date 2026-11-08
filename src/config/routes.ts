@@ -54,6 +54,7 @@ export const PATHS = {
   adjustProject: (id: string) => `/projects/${id}/adjust`,
   adjustments: "/projects/adjustments",
   reports: "/reports",
+  reportDepartment: (department: string) => `/reports/${encodeURIComponent(department)}`,
 } as const;
 
 export const ROUTES: RouteMeta[] = [
@@ -92,7 +93,7 @@ export const ROUTES: RouteMeta[] = [
   // ---------------------------------------------------------------- คนที่ 3 คำขอของฉัน + รายงาน
   {
     path: "/my-requests",
-    title: "คำขอของฉัน",
+    title: "รออนุมัติ / ประวัติการอนุมัติ",
     owner: "คนที่ 3",
     todo: [
       "ตารางคำขอที่ requesterId === user.id เรียงใหม่สุดก่อน",
@@ -103,8 +104,8 @@ export const ROUTES: RouteMeta[] = [
   },
   {
     path: "/requests/[id]",
-    title: "รายละเอียดคำขอ",
-    parent: "/my-requests",
+    title: "ตรวจสอบคำขอ",
+    parent: "/dashboard",
     owner: "คนที่ 3",
     todo: [
       "แสดงข้อมูลคำขอ รายการค่าใช้จ่าย ไฟล์แนบ และไทม์ไลน์จาก request.history",
@@ -125,6 +126,18 @@ export const ROUTES: RouteMeta[] = [
       "กรองตามโครงการและช่วงวันที่",
     ],
     uses: ["lib/budget: getProjectBudget, getCategoryBudget", "store/projects, store/requests"],
+  },
+  {
+    path: "/reports/[dept]",
+    title: "รายละเอียดโครงการแผนก",
+    parent: "/reports",
+    roles: ["ACCOUNTANT", "EXECUTIVE"],
+    owner: "คนที่ 3",
+    todo: [
+      "ตารางโครงการของแผนก: ผู้รับผิดชอบ · งบรวม · จ่ายจริง · ยอดจองรอจ่าย · คงเหลือ · สถานะโครงการ",
+      "ปุ่มรายละเอียด → /projects/[id]",
+    ],
+    uses: ["lib/budget: getProjectBudget", "store/projects: useProjects"],
   },
 
   // ---------------------------------------------------------------- คนที่ 4 การอนุมัติ
