@@ -1,12 +1,9 @@
 "use client";
 /**
- * /requests/[id]/edit — เจ้าของ: คนที่ 2
- * หน้าชั่วคราว: สิ่งที่ต้องทำเขียนไว้ใน config/routes.ts (แสดงบนหน้าจอด้วย)
- * เริ่มทำ: ลบ <PagePlaceholder /> แล้วเขียนหน้าจริงแทน
- *
- * อ่าน id จาก URL ด้วย useParams (หน้าเป็น client component):
- *   const { id } = useParams<{ id: string }>();
- *   const request = useRequest(id);   // หรือ getProjectById(id) สำหรับหน้าโครงการ
+ * /requests/[id]/edit — แก้ไขคำขอที่ถูกส่งกลับ แล้วยื่นใหม่ · เจ้าของ: คนที่ 2
+ * -----------------------------------------------------------------------------
+ * เข้าได้เฉพาะ canEdit(request, user) = เจ้าของคำขอ + สถานะ "ส่งกลับแก้ไข"
+ * ยืนยันแล้ว → resubmitRequest() → กลับไปหน้ารายละเอียดคำขอ
  */
 import { useParams } from "next/navigation";
 import { PagePlaceholder } from "@/components/layout/PagePlaceholder";
