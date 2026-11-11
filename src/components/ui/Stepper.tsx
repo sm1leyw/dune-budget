@@ -24,7 +24,7 @@ export function Stepper({ steps, current, className }: { steps: string[]; curren
             {index > 0 && (
               <li aria-hidden className={cn("mx-3 mt-[22px] h-1 flex-1 rounded-full", step <= current ? "bg-primary" : "bg-border")} />
             )}
-            <li className="flex w-32 flex-col items-center gap-2 text-center" aria-current={active ? "step" : undefined}>
+            <li className="flex w-40 flex-col items-center gap-2 text-center" aria-current={active ? "step" : undefined}>
               <span
                 className={cn(
                   "flex size-12 items-center justify-center rounded-full border-[3px] text-lg font-bold",
