@@ -16,6 +16,10 @@ export type RequestStatus =
   | "SENT_BACK" // ส่งกลับแก้ไข (ผู้ขอแก้แล้วยื่นใหม่ หรือยกเลิกได้)
   | "CANCELLED"; // ผู้ขอยกเลิกคำขอ (ยกเลิกได้เฉพาะตอนถูกส่งกลับแก้ไข)
 
+
+/** วิธีคืนเงินส่วนต่าง (ตาราง B เท่านั้น) — ข้อความแสดงผลอยู่ใน constants/request.ts */
+export type RefundMethod = "TRANSFER" | "CASH";
+
 /** ประเภทแบบฟอร์ม: ตาราง A = ขอเบิก/ยืมเงินล่วงหน้า, ตาราง B = คืนเงิน/เคลียร์เงินยืม */
 export type RequestType = "ADVANCE" | "CLEARANCE";
 
