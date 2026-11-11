@@ -22,14 +22,14 @@ import { createPersistentStore } from "@/lib/createStore";
 import { canCancel, canEdit, getInitialStatus } from "@/lib/workflow";
 import { nowISO } from "@/lib/format";
 import { INITIAL_REQUESTS } from "@/data/mock/requests";
-import type { ExpenseItem, ReimburseRequest, User } from "@/types";
+import type { ExpenseItem, ReimburseRequest, User, RefundMethod } from "@/types";
 
 export const requestsStore = createPersistentStore<ReimburseRequest[]>("dune_requests", INITIAL_REQUESTS);
 
 /** ข้อมูลที่ฟอร์มต้องส่งมา (ระบบเติม id, ผู้ยื่น, สถานะ, วันที่ ให้เอง) */
 export type RequestInput = Pick<
   ReimburseRequest,
-  "type" | "projectId" | "categoryId" | "purpose" | "startDate" | "endDate" | "advanceRefId"
+  "type" | "projectId" | "categoryId" | "purpose" | "startDate" | "endDate" | "advanceRefId" | "refundMethod"
 > & { items: ExpenseItem[] };
 
 /** hook: คำขอทั้งหมดที่ยังไม่ถูกยกเลิก (กรองต่อด้วย useMemo ในหน้าของตัวเอง) */

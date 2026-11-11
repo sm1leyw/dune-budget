@@ -16,8 +16,15 @@ export type RequestStatus =
   | "SENT_BACK" // ส่งกลับแก้ไข (ผู้ขอแก้แล้วยื่นใหม่ หรือยกเลิกได้)
   | "CANCELLED"; // ผู้ขอยกเลิกคำขอ (ยกเลิกได้เฉพาะตอนถูกส่งกลับแก้ไข)
 
+
+/** วิธีคืนเงินส่วนต่าง (ตาราง B เท่านั้น) — ข้อความแสดงผลอยู่ใน constants/request.ts */
+export type RefundMethod = "TRANSFER" | "CASH";
+
 /** ประเภทแบบฟอร์ม: ตาราง A = ขอเบิก/ยืมเงินล่วงหน้า, ตาราง B = คืนเงิน/เคลียร์เงินยืม */
 export type RequestType = "ADVANCE" | "CLEARANCE";
+
+/** วิธีคืนเงินส่วนต่าง (ตาราง B เท่านั้น) — ข้อความแสดงผลอยู่ใน constants/request.ts */
+export type RefundMethod = "TRANSFER" | "CASH";
 
 /** รายการค่าใช้จ่ายย่อย 1 แถว */
 export interface ExpenseItem {
@@ -49,6 +56,7 @@ export interface PaymentInfo {
   amount: number;
   date: string;
   fileName: string;
+  fileData?: string;
 }
 
 
@@ -79,21 +87,7 @@ export interface ReimburseRequest {
   updatedAt: string;
   /** ประวัติการกระทำ เรียงจากเก่าไปใหม่ */
   history: RequestEvent[];
-}
-
-// เพิ่ม type นี้เข้าไปในไฟล์ types/request.ts
-export interface PaymentInfo {
-  method: "CASH" | "CHECK" | "TRANSFER";
-  refNumber?: string;
-  amount: number;
-  date: string;
-  fileName: string;
-  fileData?: string; // <--- เพิ่มบรรทัดนี้เข้าไป
-}
-
-// แล้วไปหา interface ReimburseRequest เติมฟิลด์ paymentInfo เข้าไป (บรรทัดล่างๆ)
-export interface ReimburseRequest {
-  // ... (โค้ดเดิม) ...
-  history: RequestEvent[];
-  paymentInfo?: PaymentInfo; // <--- เพิ่มบรรทัดนี้เข้าไป
+  paymentInfo?: PaymentInfo;
+  /** เพิ่มตรงนี้: ตาราง B คืนเงินส่วนต่าง (ใส่ ? ไว้) */
+  refundMethod?: RefundMethod;
 }
