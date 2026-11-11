@@ -34,7 +34,7 @@ export function Sidebar({ user }: { user: User }) {
     <aside className="sticky top-0 flex h-screen w-[272px] shrink-0 flex-col border-r-[1.5px] border-border bg-surface">
       <Link href={PATHS.dashboard} className="flex items-center gap-3 px-6 py-7">
         <span aria-hidden className="flex size-11 items-center justify-center rounded-md bg-primary-soft text-2xl">
-          🪱
+        <img src="/logo.png" alt="โลโก้ Dune Budget"/>
         </span>
         <span>
           <span className="block text-lg font-bold leading-tight text-primary">Dune Budget</span>
