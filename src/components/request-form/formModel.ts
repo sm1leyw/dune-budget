@@ -19,6 +19,7 @@
 import type { RequestInput } from "@/store/requests";
 import type { ReimburseRequest, RefundMethod, RequestType } from "@/types";
 
+
 export interface ItemRow {
   id: string;
   name: string;
@@ -28,6 +29,8 @@ export interface ItemRow {
   date: string;
   /** ชื่อไฟล์หลักฐาน (ยังไม่มี backend จึงเก็บแค่ชื่อ) */
   fileName?: string;
+  /** ข้อมูลไฟล์แบบ Base64 */
+  fileData?: string;
 }
 
 export interface RequestFormValues {
@@ -117,6 +120,7 @@ export function toRequestInput(values: RequestFormValues, advance?: ReimburseReq
     amount: parseAmount(i.amount),
     date: i.date,
     fileName: i.fileName,
+    fileData: i.fileData, // เพิ่ม fileData เพื่อส่งให้ backend (ตอนนี้ยังไม่มี backend จึงเก็บแค่ชื่อไฟล์)
   }));
 
   if (values.type === "CLEARANCE") {
@@ -150,4 +154,33 @@ export function todayISO(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// funtion ดูไฟล์แนบในแท็บใหม่ — รับเข้า: fileData (Base64 Data URL) หรือ undefined
+/** เปิดดูไฟล์แนบ (Base64 Data URL) ในแท็บใหม่ */
+export function openFilePreview(fileData?: string) {
+  if (!fileData) {
+    alert("ไม่พบข้อมูลไฟล์สำหรับแสดงตัวอย่าง");
+    return;
+  }
+
+  if (fileData.startsWith("data:")) {
+    const [header, base64Data] = fileData.split(",");
+    const mimeType = header.split(":")[1].split(";")[0];
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: mimeType });
+    const blobUrl = URL.createObjectURL(blob);
+
+    window.open(blobUrl, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  window.open(fileData, "_blank", "noopener,noreferrer");
 }

@@ -14,9 +14,10 @@ import { Plus, Trash2, X } from "lucide-react";
 import { Button, Input } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { formatBaht } from "@/lib/format";
-import { newItemRow, parseAmount, sumItems, type ItemRow, type RequestFormValues } from "./formModel";
+import { newItemRow, openFilePreview, parseAmount, sumItems, type ItemRow, type RequestFormValues } from "./formModel";
 import type { FormErrors } from "./validation";
 import { AttachFileModal } from "./AttachFileModal";
+
 
 export function StepItems({
   values,
@@ -94,13 +95,21 @@ export function StepItems({
                       errors[`${key}.fileName`] ? "border-danger" : "border-border-input",
                     )}
                   >
+                    {/* ระบบเปิดไฟล์ยังไงอยู่ตรงนี้ */}
                     {row.fileName ? (
                       <span className="flex max-w-full items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1 text-caption text-primary">
-                        <span className="truncate">{row.fileName}</span>
+                        <button
+                          type="button"
+                          onClick={() => openFilePreview(row.fileData)}
+                          className="truncate hover:underline"
+                          title="คลิกเพื่อเปิดดูไฟล์"
+                        >
+                          {row.fileName}
+                        </button>
                         <button
                           type="button"
                           aria-label={`ลบไฟล์ ${row.fileName}`}
-                          onClick={() => updateRow(row.id, { fileName: undefined })}
+                          onClick={() => updateRow(row.id, { fileName: undefined, fileData: undefined })}
                           className="shrink-0 rounded-full hover:bg-surface"
                         >
                           <X className="size-3.5" />
@@ -143,7 +152,7 @@ export function StepItems({
         open={attachRowId !== null}
         title={isClearance ? "แนบใบเสร็จ" : "แนบหลักฐานการเบิกจ่าย"}
         onClose={() => setAttachRowId(null)}
-        onSave={(fileName) => attachRowId && updateRow(attachRowId, { fileName })}
+        onSave={(fileName, fileData) => attachRowId && updateRow(attachRowId, { fileName, fileData })}
       />
     </div>
   );

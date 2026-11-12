@@ -23,9 +23,6 @@ export type RefundMethod = "TRANSFER" | "CASH";
 /** ประเภทแบบฟอร์ม: ตาราง A = ขอเบิก/ยืมเงินล่วงหน้า, ตาราง B = คืนเงิน/เคลียร์เงินยืม */
 export type RequestType = "ADVANCE" | "CLEARANCE";
 
-/** วิธีคืนเงินส่วนต่าง (ตาราง B เท่านั้น) — ข้อความแสดงผลอยู่ใน constants/request.ts */
-export type RefundMethod = "TRANSFER" | "CASH";
-
 /** รายการค่าใช้จ่ายย่อย 1 แถว */
 export interface ExpenseItem {
   id: string;
@@ -35,6 +32,8 @@ export interface ExpenseItem {
   date: string;
   /** ชื่อไฟล์หลักฐาน (ช่วง frontend เก็บแค่ชื่อไฟล์) */
   fileName?: string;
+  /** ข้อมูลไฟล์แบบ Base64 Data URL สำหรับเปิดดูตัวอย่าง */
+  fileData?: string;
 }
 
 /** การกระทำที่เกิดกับคำขอ — ใช้แสดงลำดับขั้นการอนุมัติ (timeline) */

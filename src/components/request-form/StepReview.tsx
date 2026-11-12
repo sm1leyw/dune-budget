@@ -16,8 +16,9 @@ import { REFUND_METHOD_LABEL, REQUEST_TYPE_LABEL } from "@/constants/request";
 import { formatBaht, formatThaiDate } from "@/lib/format";
 import { getCategoryName, getProjectById } from "@/store/projects";
 import type { User } from "@/types";
-import { parseAmount, sumItems, type RequestFormValues } from "./formModel";
+import { openFilePreview, parseAmount, sumItems, type RequestFormValues } from "./formModel";
 import type { FormData } from "./useFormData";
+
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -84,10 +85,15 @@ export function StepReview({
               {i.name} <span className="text-caption text-text-muted">· {formatThaiDate(i.date)}</span>
             </span>
             <span className="flex items-center gap-4">
-              <span className="flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-caption text-primary">
+              <button
+                type="button"
+                onClick={() => openFilePreview(i.fileData)}
+                title="คลิกเพื่อเปิดดูไฟล์"
+                className="flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-caption text-primary transition hover:bg-primary-soft hover:underline"
+              >
                 <Paperclip className="size-3.5" aria-hidden />
                 {i.fileName}
-              </span>
+              </button>
               <span className="font-medium">{formatBaht(parseAmount(i.amount) || 0)}</span>
             </span>
           </li>

@@ -31,7 +31,7 @@ export function AttachFileModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onSave: (fileName: string) => void;
+  onSave: (fileName: string, fileData: string) => void;
   title?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -79,8 +79,12 @@ export function AttachFileModal({
             disabled={!file}
             onClick={() => {
               if (!file) return;
-              onSave(file.name);
-              close();
+              const reader = new FileReader();
+              reader.onload = () => {
+                onSave(file.name, reader.result as string);
+                close();
+              };
+              reader.readAsDataURL(file);
             }}
           >
             บันทึก
