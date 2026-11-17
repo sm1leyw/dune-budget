@@ -95,7 +95,7 @@ export function StepItems({
                       errors[`${key}.fileName`] ? "border-danger" : "border-border-input",
                     )}
                   >
-                    {/* ระบบเปิดไฟล์ยังไงอยู่ตรงนี้ */}
+                    {/* ระบบเปิดไฟล์*/}
                     {row.fileName ? (
                       <span className="flex max-w-full items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1 text-caption text-primary">
                         <button
