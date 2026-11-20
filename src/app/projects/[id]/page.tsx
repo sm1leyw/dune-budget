@@ -12,9 +12,11 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Check, Download, ExternalLink, Eye, FileText, X } from "lucide-react";
+import { ArrowLeft, Check, Download, Eye, FileText, X } from "lucide-react";
 import { PATHS } from "@/config/routes";
 import { getCategoryBudget, getProjectBudget } from "@/lib/budget";
+import { getProjectAttachments } from "@/lib/files";
+import { AttachmentChip } from "@/components/ui";
 import { formatNumber, formatThaiDateLong } from "@/lib/format";
 import { completeProject, useAdjustments, useProjects } from "@/store/projects";
 import { useRequests } from "@/store/requests";
@@ -78,7 +80,7 @@ export default function ProjectDetailPage() {
 
   // ฟังก์ชันกดยืนยันเสร็จสิ้นโครงการ
   const handleConfirmComplete = () => {
-    completeProject(project.id);
+    completeProject(project.id, user?.id);
     setShowCompleteModal(false);
   };
 
@@ -97,7 +99,9 @@ export default function ProjectDetailPage() {
         {isCompleted ? (
           // แถบแจ้งเตือนสีเขียวมิ้นต์อ่อนเมื่อโครงการเสร็จสิ้นแล้ว (ตามรูป 100%)
           <div className="rounded-lg bg-[#E2F1EA] px-4 py-2 text-[12px] text-gray-700 shadow-sm">
-            เสร็จสิ้นโครงการเมื่อ 30/11/2569 โดย {owner?.name ?? "สมหมาย ศรีสุข"} • งบคงเหลือ{" "}
+            เสร็จสิ้นโครงการ
+            {project.completedAt ? ` เมื่อ ${formatThaiDateLong(project.completedAt)}` : ""}
+            {project.completedBy ? ` โดย ${getUserById(project.completedBy)?.name ?? project.completedBy}` : ""} • งบคงเหลือ{" "}
             {formatNumber(budget.remaining)} บาท คืนเข้าส่วนกลางแล้ว • ไม่เปิดรับคำขอเบิกใหม่
           </div>
         ) : (
@@ -132,7 +136,8 @@ export default function ProjectDetailPage() {
           )}
         </div>
         <p className="mt-1 text-[12px] text-gray-500">
-          เพื่อจัดสัมมนาเพิ่มความภักดีลูกค้า • ผู้รับผิดชอบ {owner?.name ?? project.ownerId} - หัวหน้าแผนกการตลาด
+          {project.purpose} • ผู้รับผิดชอบ {owner?.name ?? project.ownerId}
+          {owner?.department ? ` - ${owner.department}` : ""}
         </p>
 
         {/* 4 กล่องสรุปงบ สีเขียวมิ้นต์ #D7ECE4 ตัวเลขสี #007F5F */}
@@ -284,35 +289,14 @@ export default function ProjectDetailPage() {
           {/* เอกสารจัดตั้งโครงการ */}
           <div className="col-span-1 border-b border-gray-100 pb-3">
             <p className="text-gray-400">เอกสารจัดตั้งโครงการ</p>
-            <div className="mt-1.5 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setViewingDoc({
-                    title: `TOR_ขอบเขตการดำเนินงาน_${project.id}.pdf`,
-                    docType: "ข้อกำหนดและขอบเขตงาน (TOR)",
-                    fileSize: "2.4 MB",
-                    updatedAt: "1 พ.ย. 2569",
-                  })
-                }
-                className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-0.5 text-[11px] text-gray-600 shadow-xs hover:border-[#007F5F] hover:text-[#007F5F] transition"
-              >
-                <FileText className="size-3 text-gray-400" /> ดูไฟล์
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setViewingDoc({
-                    title: `หนังสืออนุมัติจัดตั้งโครงการ_${project.id}.pdf`,
-                    docType: "เอกสารคำสั่งอนุมัติโครงการ",
-                    fileSize: "840 KB",
-                    updatedAt: "28 ต.ค. 2569",
-                  })
-                }
-                className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-0.5 text-[11px] text-gray-600 shadow-xs hover:border-[#007F5F] hover:text-[#007F5F] transition"
-              >
-                <FileText className="size-3 text-gray-400" /> ดูไฟล์
-              </button>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              {getProjectAttachments(project).length === 0 ? (
+                <span className="text-gray-400">ไม่มีไฟล์แนบ</span>
+              ) : (
+                getProjectAttachments(project).map((doc) => (
+                  <AttachmentChip key={doc.name} name={doc.name} data={doc.data} className="text-[11px]" />
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -424,7 +408,7 @@ export default function ProjectDetailPage() {
                   <p className="text-gray-600 indent-6">
                     การดำเนินโครงการมีกำหนดการตั้งแต่วันที่ {formatThaiDateLong(project.startDate)} ถึง{" "}
                     {formatThaiDateLong(project.endDate)} ผู้รับผิดชอบโครงการคือ{" "}
-                    {owner?.name ?? "สมหมาย ศรีสุข"}
+                    {owner?.name ?? project.ownerId}
                   </p>
                 </div>
 
@@ -447,7 +431,7 @@ export default function ProjectDetailPage() {
                     <div className="border-b border-gray-300 pb-1 mb-1 font-serif italic text-gray-400">
                       ( ลงนามอนุมัติเรียบร้อยทางอิเล็กทรอนิกส์ )
                     </div>
-                    <p className="font-bold text-gray-800">{owner?.name ?? "สมหมาย ศรีสุข"}</p>
+                    <p className="font-bold text-gray-800">{owner?.name ?? project.ownerId}</p>
                     <p className="text-gray-500">หัวหน้าฝ่ายที่รับผิดชอบโครงการ</p>
                   </div>
                 </div>

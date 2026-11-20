@@ -30,6 +30,18 @@ export interface Project {
   endDate: string;
   status: ProjectStatus;
   categories: BudgetCategory[];
+  /** เวลาที่กดเสร็จสิ้นโครงการ (ISO) — มีเมื่อ status = COMPLETED */
+  completedAt?: string;
+  /** id ผู้กดเสร็จสิ้นโครงการ */
+  completedBy?: string;
+  /** เอกสารจัดตั้งโครงการที่แนบตอนสร้าง (TOR, หนังสืออนุมัติ ฯลฯ) */
+  attachments?: Attachment[];
+}
+
+/** ไฟล์แนบ 1 ไฟล์ — data = Base64 Data URL หรือที่อยู่ไฟล์ เช่น "/mock-files/tor.pdf" */
+export interface Attachment {
+  name: string;
+  data?: string;
 }
 
 /** การปรับงบ 1 ครั้ง (บวก = เพิ่มงบ, ลบ = ลดงบ) */
@@ -41,4 +53,6 @@ export interface BudgetAdjustment {
   reason: string;
   byUserId: string;
   at: string;
+  /** เอกสารอนุมัติการปรับงบที่แนบมา */
+  attachments?: Attachment[];
 }

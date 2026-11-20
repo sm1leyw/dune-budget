@@ -21,8 +21,7 @@
  * </RequestDetail>
  */
 import type { ReactNode } from "react";
-import { FileText } from "lucide-react";
-import { Card, InfoBox, Table, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui";
+import { AttachmentChip, Card, InfoBox, Table, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui";
 import { ROLE_LABEL } from "@/constants/roles";
 import { formatBaht, formatNumber, formatThaiDate } from "@/lib/format";
 import { getCategoryName, useProjects } from "@/store/projects";
@@ -48,16 +47,6 @@ function InfoRow({ label, children, bold = true }: { label: string; children: Re
       <span className="text-text-muted">{label} : </span>
       <span className={bold ? "font-bold" : undefined}>{children}</span>
     </p>
-  );
-}
-
-function FileChip({ name }: { name?: string }) {
-  if (!name) return <span className="text-caption text-text-muted">ไม่มีไฟล์แนบ</span>;
-  return (
-    <span className="inline-flex max-w-[200px] items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1 text-badge text-primary">
-      <FileText className="size-3.5 shrink-0" aria-hidden />
-      <span className="truncate">{name}</span>
-    </span>
   );
 }
 
@@ -88,7 +77,7 @@ export function RequestDetail({
             <InfoRow label="แผนก">{requester?.department ?? "-"}</InfoRow>
             <InfoRow label="ประเภทแบบฟอร์ม">{REQUEST_TYPE_LABEL[request.type]}</InfoRow>
             <InfoRow label="ช่วงระยะเวลาดำเนินการ" bold={false}>
-              {request.startDate} ถึง {request.endDate}
+              {request.startDate ? formatThaiDate(request.startDate) : "-"} ถึง {request.endDate ? formatThaiDate(request.endDate) : "-"}
             </InfoRow>
             <InfoRow label="ชื่อโครงการ">{project?.name ?? request.projectId}</InfoRow>
             <InfoRow label="หมวดหมู่">{getCategoryName(project, request.categoryId)}</InfoRow>
@@ -133,10 +122,10 @@ export function RequestDetail({
             {request.items.map((item) => (
               <TR key={item.id}>
                 <TD>{item.name}</TD>
-                <TD className="whitespace-nowrap">{formatThaiDate(item.date)}</TD>
+                <TD className="whitespace-nowrap">{item.date ? formatThaiDate(item.date) : "-"}</TD>
                 <TD className="whitespace-nowrap">{formatNumber(item.amount)}</TD>
                 <TD>
-                  <FileChip name={item.fileName} />
+                  <AttachmentChip name={item.fileName} data={item.fileData} />
                 </TD>
               </TR>
             ))}
@@ -165,7 +154,7 @@ export function RequestDetail({
                 <TD className="whitespace-nowrap">{formatThaiDate(payment.date)}</TD>
                 <TD className="whitespace-nowrap">{formatNumber(payment.amount)}</TD>
                 <TD>
-                  <FileChip name={payment.fileName} />
+                  <AttachmentChip name={payment.fileName} data={payment.fileData} />
                 </TD>
               </TR>
             </TBody>

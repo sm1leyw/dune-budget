@@ -1,177 +1,174 @@
 "use client";
 /**
- * /approvals — เจ้าของ: คนที่ 4
- * หน้าชั่วคราว: สิ่งที่ต้องทำเขียนไว้ใน config/routes.ts (แสดงบนหน้าจอด้วย)
- * เริ่มทำ: ใส่ "use client" บรรทัดแรก (ถ้าใช้ hook/useState) ลบ <PagePlaceholder /> แล้วเขียนหน้าจริงแทน
+ * /approvals — รออนุมัติ / ประวัติการอนุมัติ · เจ้าของ: คนที่ 4 · เข้าได้: หัวหน้าแผนก, ผู้บริหาร, บัญชี
+ * -----------------------------------------------------------------------------
+ * - <Tabs>: "รออนุมัติ (n)" = คำขอที่ isMyTurn(req, user) · "ประวัติ" = คำขอที่ผู้ใช้เคยอนุมัติ/ทำจ่าย/ส่งกลับ
+ *   (บัญชีใช้ชื่อแท็บ "รอทำจ่าย" / "ประวัติการทำจ่าย")
+ * - <FilterBar>: ค้นหาเลขที่/ชื่อโครงการ/ชื่อผู้ขอ · กรองโครงการ · ช่วงวันที่ยื่น
+ * - แถวตาราง: ปุ่ม "ตรวจสอบ" → /approvals/[id]
  */
-import { useState, useMemo } from "react";
-import Link from "next/link";
-import { useRequests } from "@/store/requests";
-import { isMyTurn } from "@/lib/workflow";
+import { useMemo, useState } from "react";
+import { ButtonLink, Card, FilterBar, StatusBadge, Table, TableEmpty, Tabs, TBody, TD, TH, THead, TR } from "@/components/ui";
 import { PATHS } from "@/config/routes";
-// สมมติว่ามี hook เหล่านี้ตามที่ README ระบุ (ถ้า path ต่างไปให้ปรับแก้ตามจริง)
-import { useCurrentUser } from "@/store/session";
-import { useProjects } from "@/store/projects";
-import { formatBaht, formatThaiDate } from "@/lib/format";
-import type { RequestStatus } from "@/types";
+import { formatNumber, formatThaiDate } from "@/lib/format";
+import { isMyTurn } from "@/lib/workflow";
+import { getCategoryName, useProjects } from "@/store/projects";
+import { useRequests } from "@/store/requests";
+import { getUserById, useCurrentUser } from "@/store/session";
+import type { ReimburseRequest, User } from "@/types";
 
-export default function ApprovalsPage() {
-  const [activeTab, setActiveTab] = useState<"pending" | "history">("pending");
+type TabKey = "pending" | "history";
 
-  const currentUser = useCurrentUser();
-  const allRequests = useRequests();
-  const projects = useProjects(); // เพื่อดึงชื่อโครงการ
+/** การกระทำที่นับเป็น "ผู้ใช้คนนี้พิจารณาแล้ว" */
+const REVIEW_ACTIONS = new Set(["APPROVE", "PAY", "SEND_BACK"]);
 
-  // กรองคำขอที่รอผู้ใช้คนนี้พิจารณา
-  const pendingRequests = useMemo(() => {
-    return allRequests.filter((req) => isMyTurn(req, currentUser));
-  }, [allRequests, currentUser]);
+const newestFirst = (a: ReimburseRequest, b: ReimburseRequest) => b.createdAt.localeCompare(a.createdAt);
 
-  // กรองประวัติคำขอที่ผู้ใช้คนนี้เคยมีส่วนร่วม (อนุมัติ/ทำจ่ายไปแล้ว)
-  const historyRequests = useMemo(() => {
-    if (!currentUser) return [];
-    return allRequests.filter((req) =>
-      req.history.some((h) => h.byUserId === currentUser.id && h.action !== "SUBMIT")
-    );
-  }, [allRequests, currentUser]);
-
-  const displayedRequests = activeTab === "pending" ? pendingRequests : historyRequests;
-
-  // กำหนดชื่อ Tab ตาม Role (ตามที่ระบุใน routes.ts)
-  const isAccountant = currentUser?.role === "ACCOUNTANT";
-  const pendingTabLabel = isAccountant ? "รอทำจ่าย" : "รออนุมัติ";
-  const historyTabLabel = isAccountant ? "ประวัติการทำจ่าย" : "ประวัติ";
-
-  // Helper ฟังก์ชันหาชื่อโครงการ
-  const getProjectName = (projectId: string) => {
-    const proj = projects?.find((p) => p.id === projectId);
-    return proj ? proj.name : projectId;
-  };
-
-  if (!currentUser) return null; // หรือแสดง Loading
-
-  return (
-    <div className="p-6 bg-[#E8F5E9]/30 min-h-screen">
-      {/* Header Tabs (อิงจากภาพดีไซน์) */}
-      <div className="flex gap-4 mb-6">
-        <button
-          onClick={() => setActiveTab("pending")}
-          className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all border ${activeTab === "pending"
-              ? "bg-primary text-white border-primary"    
-              : "bg-white text-gray-700 border-gray-300 hover:border-primary"
-            }`}
-        >
-          {pendingTabLabel} ({pendingRequests.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("history")}
-          className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all border ${activeTab === "history"
-              ? "bg-primary text-white border-primary"
-              : "bg-white text-gray-700 border-gray-300 hover:border-primary"
-            }`}
-        >
-          {historyTabLabel} ({historyRequests.length})
-        </button>
-      </div>
-
-      {/* Table Card */}
-      <div className="bg-white rounded-xl border border-[#A5D6A7] shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="text-gray-500 border-b border-gray-100">
-              <tr>
-                <th className="px-6 py-4 font-normal">โครงการ</th>
-                <th className="px-6 py-4 font-normal">หมวดหมู่</th>
-                <th className="px-6 py-4 font-normal">ชื่อผู้ขอเบิก</th>
-                <th className="px-6 py-4 font-normal">วันที่</th>
-                <th className="px-6 py-4 font-normal text-right">จำนวนเงิน</th>
-                <th className="px-6 py-4 font-normal text-center">สถานะ</th>
-                <th className="px-6 py-4 font-normal"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {displayedRequests.length > 0 ? (
-                displayedRequests.map((req) => (
-                  <tr key={req.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-800">{getProjectName(req.projectId)}</div>
-                      <div className="text-xs text-gray-400 mt-0.5">รหัสคำขอ: {req.id}</div>
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">{req.categoryId || "-"}</td>
-                    {/* สมมติว่ามีระบบดึงชื่อพนักงาน ถ้าไม่มีชั่วคราวให้แสดงเป็น ID ไปก่อน */}
-                    <td className="px-6 py-4 text-gray-600">{req.requesterId}</td>
-                    <td className="px-6 py-4 text-gray-600">
-                      {req.createdAt ? formatThaiDate(req.createdAt) : "-"}
-                    </td>
-                    <td className="px-6 py-4 font-medium text-gray-800 text-right">
-                      {formatBaht(req.totalAmount || 0).replace(" บาท", "")}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <StatusBadge status={req.status} />
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <Link
-                        href={PATHS.approvalDetail(req.id)}
-                        className="inline-block bg-primary hover:bg-primary/90 text-white text-xs px-4 py-1.5 rounded"
-                      >
-                        ตรวจสอบ
-                      </Link>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
-                    ไม่มีรายการ{activeTab === "pending" ? "รออนุมัติ" : "ในประวัติ"}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
+/** เวลาล่าสุดที่ผู้ใช้คนนี้พิจารณาคำขอ (ใช้เรียงแท็บประวัติ) */
+function lastReviewedAt(request: ReimburseRequest, user: User): string {
+  return [...request.history].reverse().find((h) => h.byUserId === user.id && REVIEW_ACTIONS.has(h.action))?.at ?? "";
 }
 
-// Component สำหรับแสดงป้ายสถานะ (อิงตามสีใน README)
-function StatusBadge({ status }: { status: RequestStatus }) {
-  let badgeClass = "";
-  let label = "";
+export default function ApprovalsPage() {
+  const user = useCurrentUser();
+  const requests = useRequests();
+  const projects = useProjects();
 
-  switch (status) {
-    case "WAITING_DEPT_HEAD":
-      label = "รอหัวหน้าอนุมัติ";
-      badgeClass = "bg-orange-500 text-white";
-      break;
-    case "WAITING_EXECUTIVE":
-      label = "รอผู้บริหารอนุมัติ";
-      badgeClass = "bg-orange-500 text-white";
-      break;
-    case "WAITING_ACCOUNTANT":
-      label = "รอบัญชีทำจ่าย";
-      badgeClass = "bg-blue-500 text-white";
-      break;
-    case "COMPLETED":
-      label = "จ่ายแล้ว";
-      badgeClass = "bg-green-600 text-white";
-      break;
-    case "SENT_BACK":
-      label = "ส่งกลับแก้ไข";
-      badgeClass = "bg-red-500 text-white";
-      break;
-    case "CANCELLED":
-      label = "ยกเลิกแล้ว";
-      badgeClass = "bg-gray-400 text-white";
-      break;
-    default:
-      label = status;
-      badgeClass = "bg-gray-200 text-gray-700";
-  }
+  const [tab, setTab] = useState<TabKey>("pending");
+  const [search, setSearch] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  /** คำขอที่ผ่านตัวกรอง (ยังไม่แยกแท็บ) */
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return requests
+      .filter((r) => !projectId || r.projectId === projectId)
+      .filter((r) => {
+        const day = r.createdAt.slice(0, 10);
+        return (!dateFrom || day >= dateFrom) && (!dateTo || day <= dateTo);
+      })
+      .filter((r) => {
+        if (!q) return true;
+        const projectName = projects.find((p) => p.id === r.projectId)?.name ?? "";
+        const requesterName = getUserById(r.requesterId)?.name ?? "";
+        return [r.id, projectName, requesterName, r.purpose].some((text) => text.toLowerCase().includes(q));
+      });
+  }, [requests, projects, search, projectId, dateFrom, dateTo]);
+
+  const pending = useMemo(() => (user ? filtered.filter((r) => isMyTurn(r, user)).sort(newestFirst) : []), [filtered, user]);
+
+  const history = useMemo(() => {
+    if (!user) return [];
+    return filtered
+      .filter((r) => r.history.some((h) => h.byUserId === user.id && REVIEW_ACTIONS.has(h.action)))
+      .sort((a, b) => lastReviewedAt(b, user).localeCompare(lastReviewedAt(a, user)));
+  }, [filtered, user]);
+
+  if (!user) return null;
+
+  const isAccountant = user.role === "ACCOUNTANT";
+  const labels: Record<TabKey, string> = {
+    pending: isAccountant ? "รอทำจ่าย" : "รออนุมัติ",
+    history: isAccountant ? "ประวัติการทำจ่าย" : "ประวัติการพิจารณา",
+  };
+  const rows = tab === "pending" ? pending : history;
+  const hasFilter = !!(search || projectId || dateFrom || dateTo);
 
   return (
-    <span className={`inline-block px-3 py-1 rounded-full text-[11px] font-medium ${badgeClass}`}>
-      • {label}
-    </span>
+    <div className="space-y-6">
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { value: "pending", label: labels.pending, count: pending.length },
+          { value: "history", label: labels.history, count: history.length },
+        ]}
+      />
+
+      <FilterBar
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="ค้นหาเลขที่คำขอ ชื่อโครงการ หรือชื่อผู้ขอ"
+        filters={[
+          {
+            key: "project",
+            label: "โครงการ",
+            value: projectId,
+            onChange: setProjectId,
+            options: projects.map((p) => ({ value: p.id, label: p.name })),
+          },
+        ]}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onDateChange={(from, to) => {
+          setDateFrom(from);
+          setDateTo(to);
+        }}
+        onClear={() => {
+          setSearch("");
+          setProjectId("");
+          setDateFrom("");
+          setDateTo("");
+        }}
+      />
+
+      <Card padding="none">
+        <div className="px-2 pb-2 pt-4">
+          <Table>
+            <THead>
+              <TR>
+                <TH>เลขที่คำขอ</TH>
+                <TH>โครงการ / หมวด</TH>
+                <TH>ผู้ขอเบิก</TH>
+                <TH>วันที่ยื่น</TH>
+                <TH align="right">จำนวนเงิน (บาท)</TH>
+                <TH align="center">สถานะ</TH>
+                <TH align="right">
+                  <span className="sr-only">การดำเนินการ</span>
+                </TH>
+              </TR>
+            </THead>
+            <TBody>
+              {rows.length === 0 && (
+                <TableEmpty colSpan={7}>
+                  {hasFilter ? "ไม่พบคำขอที่ตรงกับตัวกรอง" : tab === "pending" ? `ไม่มีรายการ${labels.pending}` : "ยังไม่มีประวัติการพิจารณา"}
+                </TableEmpty>
+              )}
+              {rows.map((r) => {
+                const project = projects.find((p) => p.id === r.projectId);
+                const requester = getUserById(r.requesterId);
+                return (
+                  <TR key={r.id}>
+                    <TD className="whitespace-nowrap font-medium">{r.id}</TD>
+                    <TD className="max-w-[200px]">
+                      <p className="truncate">{project?.name ?? r.projectId}</p>
+                      <p className="truncate text-caption text-text-muted">{getCategoryName(project, r.categoryId)}</p>
+                    </TD>
+                    <TD className="max-w-[170px]">
+                      <p className="truncate">{requester?.name ?? r.requesterId}</p>
+                      <p className="truncate text-caption text-text-muted">{requester?.department ?? ""}</p>
+                    </TD>
+                    <TD className="whitespace-nowrap">{formatThaiDate(r.createdAt)}</TD>
+                    <TD align="right" className="whitespace-nowrap font-medium">
+                      {formatNumber(r.totalAmount)}
+                    </TD>
+                    <TD align="center">
+                      <StatusBadge status={r.status} myTurn={isMyTurn(r, user)} />
+                    </TD>
+                    <TD align="right">
+                      <ButtonLink href={PATHS.approvalDetail(r.id)} size="S" variant={tab === "pending" ? "primary" : "secondary"}>
+                        ตรวจสอบ
+                      </ButtonLink>
+                    </TD>
+                  </TR>
+                );
+              })}
+            </TBody>
+          </Table>
+        </div>
+      </Card>
+    </div>
   );
 }

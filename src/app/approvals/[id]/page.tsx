@@ -1,523 +1,377 @@
 "use client";
-
-import { useState, use, useMemo } from "react";
-import { useRouter } from "next/navigation";
+/**
+ * /approvals/[id] — ตรวจสอบคำขอ (ฝั่งผู้อนุมัติ/บัญชี) · เจ้าของ: คนที่ 4 · เข้าได้: หัวหน้าแผนก, ผู้บริหาร, บัญชี
+ * -----------------------------------------------------------------------------
+ * - แสดงคำขอด้วย <RequestDetail> (ข้อมูล · ลำดับขั้นการอนุมัติ · ยอดเงิน · เอกสารแนบ · ข้อมูลทำจ่าย)
+ * - การ์ด "งบประมาณหมวดนี้" แสดงงบจัดสรร/ใช้แล้ว/จองไว้/คงเหลือ และเตือนเมื่อหมวดติดลบ (เกินงบ)
+ * - ถ้า isMyTurn:
+ *     หัวหน้า/ผู้บริหาร → ปุ่ม "ส่งกลับแก้ไข" (danger) · "อนุมัติ" (primary)
+ *     บัญชี            → ฟอร์มข้อมูลการทำจ่าย (วิธีจ่าย · เลขอ้างอิง · ยอด · วันที่ · ไฟล์หลักฐาน) + "ยืนยันทำจ่าย"
+ *   ส่งกลับแก้ไข → <Modal> + <Textarea> หมายเหตุ (บังคับ) → sendBackRequest(id, user, note)
+ *   อนุมัติ/ทำจ่าย → <ConfirmModal> → approveRequest(id, user, paymentInfo?)
+ * - ไม่ใช่ตาของผู้ใช้ → แสดงอย่างเดียว มีแค่ปุ่มกลับ
+ */
+import { useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { AlertTriangle, ArrowLeft, Paperclip } from "lucide-react";
+import {
+  Button,
+  ButtonLink,
+  Card,
+  ConfirmModal,
+  EmptyState,
+  Field,
+  Input,
+  Modal,
+  Select,
+  StatusBadge,
+  Textarea,
+  AttachmentChip,
+} from "@/components/ui";
+import { PAYMENT_METHOD_LABEL, RequestDetail } from "@/components/requests/RequestDetail";
 import { PATHS } from "@/config/routes";
+import { getCategoryBudget } from "@/lib/budget";
+import { cn } from "@/lib/cn";
+import { formatBaht, formatNumber } from "@/lib/format";
 import { isMyTurn } from "@/lib/workflow";
-import { formatBaht, formatThaiDate } from "@/lib/format";
-// สมมติว่ามี hook/ฟังก์ชันเหล่านี้ตามที่ README ระบุ (ปรับ path ตามจริง)
-import { useCurrentUser } from "@/store/session";
-import { useRequest } from "@/store/requests";
-import { useProjects } from "@/store/projects";
-// สมมติว่า import actions จาก store/approvals ได้ตามที่ README ระบุ
 import { approveRequest, sendBackRequest } from "@/store/approvals";
-// นำเข้า Modal
-import { Modal, ConfirmModal } from "@/components/ui/Modal";
-import { Button } from "@/components/ui/Button";
+import { getCategoryName, useAdjustments, useProjects } from "@/store/projects";
+import { useRequest, useRequests } from "@/store/requests";
+import { useCurrentUser } from "@/store/session";
+import { ACCEPT_ATTR, MAX_FILE_MB, prepareAttachment } from "@/lib/files";
+import type { Attachment, PaymentInfo, ReimburseRequest, User } from "@/types";
 
-// ฟังก์ชันแปลงไฟล์เป็น Base64 String เพื่อเก็บลง LocalStorage
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (error) => reject(error);
-  });
-};
+const PAYMENT_METHOD_OPTIONS = (Object.keys(PAYMENT_METHOD_LABEL) as PaymentInfo["method"][]).map((value) => ({
+  value,
+  label: PAYMENT_METHOD_LABEL[value],
+}));
 
-export default function ApprovalDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const router = useRouter();
-  const { id } = use(params);
+function todayLocalISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
-  const currentUser = useCurrentUser();
+export default function ApprovalDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const user = useCurrentUser();
   const request = useRequest(id);
-  const projects = useProjects();
 
-  const [rejectModalOpen, setRejectModalOpen] = useState(false);
-  const [rejectNote, setRejectNote] = useState("");
-  const [rejectError, setRejectError] = useState("");
-  const [rejectLoading, setRejectLoading] = useState(false);
+  if (!user) return null;
 
-  const [approveModalOpen, setApproveModalOpen] = useState(false);
-  const [approveLoading, setApproveLoading] = useState(false);
+  if (!request) {
+    return (
+      <Card>
+        <EmptyState
+          title="ไม่พบคำขอนี้"
+          description={`ไม่พบคำขอเลขที่ ${id} หรือคำขอถูกยกเลิกไปแล้ว`}
+          action={
+            <ButtonLink href={PATHS.approvals} variant="secondary" icon={<ArrowLeft />}>
+              กลับรายการรออนุมัติ
+            </ButtonLink>
+          }
+        />
+      </Card>
+    );
+  }
 
-  const [payMethod, setPayMethod] = useState<"CASH" | "CHECK" | "TRANSFER">("TRANSFER");
-  const [payAmount, setPayAmount] = useState<number>(0);
+  // key: เปลี่ยนคำขอ/สถานะแล้วล้างค่าที่กรอกค้างไว้ในฟอร์ม
+  return <ApprovalDetail key={`${request.id}-${request.updatedAt}`} request={request} user={user} />;
+}
 
-  // แก้วันที่เริ่มต้นให้เป็นวันที่ปัจจุบันตามเครื่องผู้ใช้งาน (Local Time) 
-  const [payDate, setPayDate] = useState<string>(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  });
+function ApprovalDetail({ request, user }: { request: ReimburseRequest; user: User }) {
+  const router = useRouter();
+  const myTurn = isMyTurn(request, user);
+  const isAccountant = user.role === "ACCOUNTANT";
 
-  const [payFile, setPayFile] = useState<File | null>(null);
-  const [payError, setPayError] = useState("");
+  // ส่งกลับแก้ไข
+  const [sendBackOpen, setSendBackOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [noteError, setNoteError] = useState("");
+  const [sendingBack, setSendingBack] = useState(false);
 
-  const project = useMemo(() => {
-    return projects?.find((p) => p.id === request?.projectId);
-  }, [projects, request?.projectId]);
+  // อนุมัติ / ทำจ่าย
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [actionError, setActionError] = useState("");
 
-  useMemo(() => {
-    if (request && payAmount === 0) setPayAmount(request.totalAmount);
-  }, [request, payAmount]);
+  // ฟอร์มทำจ่าย (บัญชี)
+  const [method, setMethod] = useState<PaymentInfo["method"]>("TRANSFER");
+  const [refNumber, setRefNumber] = useState("");
+  const [amount, setAmount] = useState(String(request.totalAmount));
+  const [payDate, setPayDate] = useState(todayLocalISO);
+  const [payFile, setPayFile] = useState<Attachment | null>(null);
+  const [readingFile, setReadingFile] = useState(false);
+  const [payErrors, setPayErrors] = useState<{ amount?: string; date?: string; file?: string }>({});
 
-  if (!currentUser || !request) return <div className="p-6">กำลังโหลดข้อมูล...</div>;
+  function validatePayment(): boolean {
+    const errors: typeof payErrors = {};
+    const value = Number(amount);
+    if (!amount.trim() || !Number.isFinite(value) || value <= 0) errors.amount = "กรุณาระบุยอดที่จ่ายมากกว่า 0";
+    else if (value > request.totalAmount) errors.amount = `ยอดที่จ่ายต้องไม่เกินยอดขอเบิก (${formatBaht(request.totalAmount)})`;
+    if (!payDate) errors.date = "กรุณาเลือกวันที่จ่าย";
+    if (!payFile) errors.file = payErrors.file ?? "กรุณาแนบไฟล์หลักฐานการทำจ่าย";
+    setPayErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
 
-  const isTurn = isMyTurn(request, currentUser);
-  const isAccountant = currentUser.role === "ACCOUNTANT";
-  const isCompleted = request.status === "COMPLETED";
+  function openConfirm() {
+    setActionError("");
+    if (isAccountant && !validatePayment()) return;
+    setConfirmOpen(true);
+  }
 
-  const handleApprove = async () => {
-    // Validate เฉพาะฝ่ายบัญชี
-    if (isAccountant) {
-      if (!payFile) {
-        setPayError("กรุณาแนบไฟล์หลักฐานการทำจ่าย");
-        setApproveModalOpen(false);
-        return;
-      }
-    }
-
-    setApproveLoading(true);
-    setPayError("");
+  async function handleApprove() {
+    setApproving(true);
+    setActionError("");
     try {
-      let base64Data = "";
+      let paymentInfo: PaymentInfo | undefined;
       if (isAccountant && payFile) {
-        base64Data = await fileToBase64(payFile); // แปลงไฟล์จริงเป็น String
+        paymentInfo = {
+          method,
+          refNumber: refNumber.trim() || undefined,
+          amount: Number(amount),
+          date: payDate,
+          fileName: payFile.name,
+          fileData: payFile.data,
+        };
       }
-
-      const paymentData = isAccountant ? {
-        method: payMethod,
-        amount: payAmount,
-        date: payDate,
-        fileName: payFile?.name || "receipt.pdf",
-        fileData: base64Data
-      } : undefined;
-
-      approveRequest(request.id, currentUser, paymentData);
+      approveRequest(request.id, user, paymentInfo);
+      setConfirmOpen(false);
       router.push(PATHS.approvals);
-    } catch (error) {
-      console.error(error);
-      alert((error as Error).message);
-    } finally {
-      setApproveLoading(false);
-      setApproveModalOpen(false);
+    } catch (e) {
+      setConfirmOpen(false);
+      setActionError((e as Error).message);
+      setApproving(false);
     }
-  };
+  }
 
-  const handleReject = async () => {
-    if (!rejectNote.trim()) {
-      setRejectError("กรุณาระบุหมายเหตุการส่งกลับแก้ไข");
+  function handleSendBack() {
+    if (!note.trim()) {
+      setNoteError("กรุณาระบุหมายเหตุการส่งกลับแก้ไข");
       return;
     }
-    setRejectLoading(true);
-    setRejectError("");
+    setSendingBack(true);
     try {
-      sendBackRequest(request.id, currentUser, rejectNote);
-      setRejectModalOpen(false);
+      sendBackRequest(request.id, user, note);
+      setSendBackOpen(false);
       router.push(PATHS.approvals);
-    } catch (error) {
-      console.error(error);
-      setRejectError((error as Error).message);
-    } finally {
-      setRejectLoading(false);
+    } catch (e) {
+      setNoteError((e as Error).message);
+      setSendingBack(false);
     }
-  };
+  }
 
-  const getMethodLabel = (method: string) => {
-    if (method === "CASH") return "เงินสด";
-    if (method === "CHECK") return "เช็คเงินสด";
-    if (method === "TRANSFER") return "โอนผ่านธนาคาร";
-    return method;
-  };
+  const approveLabel = isAccountant ? "ยืนยันทำจ่าย" : "อนุมัติ";
 
   return (
-    <div className="p-6 bg-primary-soft min-h-screen">
-      <div className="flex gap-6 mb-6">
+    <>
+      {actionError && (
+        <p role="alert" className="mb-4 rounded-md border-[1.5px] border-danger bg-danger/5 p-3 text-danger">
+          {actionError}
+        </p>
+      )}
 
-        {/* ส่วนข้อมูลหลัก */}
-        <div className="flex-1 space-y-6">
-          {/* ข้อมูลคำขอ */}
-          <div className="bg-surface rounded-xl border border-border p-6 shadow-sm">
-            <div className="grid grid-cols-2 gap-y-6 gap-x-12 text-sm">
-              <div className="flex gap-2">
-                <span className="font-semibold text-text">รหัสคืนเงิน :</span>
-                <span className="text-text">{request.id}</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="font-semibold text-text">วันที่ยื่น :</span>
-                <span className="text-text">{formatThaiDate(request.createdAt)}</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="font-semibold text-text">ผู้ยื่นเรื่อง :</span>
-                <span className="text-text">{request.requesterId}</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="font-semibold text-text">แผนก :</span>
-                <span className="text-text">เทคโนโลยีสารสนเทศ (IT)</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="font-semibold text-text">ประเภทแบบฟอร์ม :</span>
-                <span className="text-primary font-medium">
-                  {request.type === "CLEARANCE" ? "ตาราง B (คืนเงิน/เคลียร์เงินยืม)" : "ตาราง A (ขอเบิก/ยืมเงินล่วงหน้า)"}
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <span className="font-semibold text-text">ช่วงระยะเวลาดำเนินการ :</span>
-                <span className="text-text">
-                  {request.startDate ? formatThaiDate(request.startDate) : "-"} ถึง {request.endDate ? formatThaiDate(request.endDate) : "-"}
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <span className="font-semibold text-text">ชื่อโครงการ :</span>
-                <span className="text-text">{project?.name || request.projectId}</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="font-semibold text-text">หมวดหมู่ :</span>
-                <span className="text-text">{request.categoryId}</span>
-              </div>
-            </div>
-
-            <div className="mt-8">
-              <div className="font-semibold text-text mb-3">รายละเอียด/วัตถุประสงค์ :</div>
-              <div className="bg-primary-soft p-4 rounded-md text-sm text-text whitespace-pre-wrap">
-                {request.purpose || "-"}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-primary text-text-inverse rounded-xl p-6 flex justify-between items-center shadow-sm">
-            <span className="text-lg font-medium">
-              {request.type === "CLEARANCE" ? "ยอดเงินที่คืน" : "ยอดเงินขอเบิก"}
-            </span>
-            <span className="text-3xl font-bold">{formatBaht(request.totalAmount).replace(" บาท", "")} บาท</span>
-          </div>
-
-          {/* ตารางเอกสารแนบ (ฝั่งผู้ขอเบิก) */}
-          <div className="bg-surface rounded-xl border border-border p-6 shadow-sm">
-            <h3 className="font-semibold text-text mb-4">ข้อมูลเอกสารแนบ</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-text-muted border-b border-border">
-                  <tr>
-                    <th className="pb-3 font-normal text-left">รายการ</th>
-                    <th className="pb-3 font-normal text-left">วันที่</th>
-                    <th className="pb-3 font-normal text-right">จำนวนเงิน</th>
-                    <th className="pb-3 font-normal text-center">เอกสารแนบ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {request.items && request.items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="py-4 text-text">{item.name}</td>
-                      <td className="py-4 text-text-muted">{item.date ? formatThaiDate(item.date) : "-"}</td>
-                      <td className="py-4 text-text text-right">{formatBaht(item.amount).replace(" บาท", "")}</td>
-                      <td className="py-4 text-center">
-                        {item.fileName ? (
-                          <span className="inline-block bg-gray-100 text-text-muted px-3 py-1 rounded text-xs truncate max-w-[150px]">
-                            {item.fileName}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-disabled">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* ฟอร์มกรอกข้อมูลทำจ่าย (บัญชี) */}
-          {isTurn && isAccountant && (
-            <div className="bg-surface rounded-xl border border-border p-6 shadow-sm relative">
-              <h3 className="font-semibold text-text mb-4">ข้อมูลการทำจ่าย</h3>
-              {payError && <div className="text-danger text-sm mb-3">{payError}</div>}
-              <div className="flex flex-wrap items-center gap-4">
-
-                <select
-                  className="border border-border-input rounded-md px-3 py-2 text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary bg-surface min-w-[150px]"
-                  value={payMethod}
-                  onChange={(e) => setPayMethod(e.target.value as any)}
-                >
-                  <option value="TRANSFER">โอนผ่านธนาคาร</option>
-                  <option value="CASH">เงินสด</option>
-                  <option value="CHECK">เช็คเงิน</option>
-                </select>
-
-                <input
-                  type="number"
-                  value={payAmount}
-                  onChange={(e) => setPayAmount(Number(e.target.value))}
-                  className="border border-border-input rounded-md px-3 py-2 text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary w-[150px]"
-                />
-
-                <input
-                  type="date"
-                  value={payDate}
-                  onChange={(e) => setPayDate(e.target.value)}
-                  className="border border-border-input rounded-md px-3 py-2 text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary w-[150px]"
-                />
-
-                <div className="flex-1 min-w-[200px]">
-                  <label className="flex items-center justify-between border border-border-input rounded-md px-3 py-1.5 text-sm cursor-pointer bg-surface">
-                    <span className="text-text-muted truncate max-w-[150px]">
-                      {payFile ? payFile.name : "แนบเอกสาร (PDF, PNG, JPG)"}
-                    </span>
-                    <span className="bg-gray-200 text-text-muted px-2 py-0.5 rounded text-xs">เลือกไฟล์</span>
-                    <input
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg"
-                      className="hidden"
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files.length > 0) {
-                          setPayFile(e.target.files[0]);
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ตารางแสดงผลการทำจ่าย (แสดงเมื่ออนุมัติแล้ว) */}
-          {isCompleted && request.paymentInfo && (
-            <div className="bg-surface rounded-xl border border-border p-6 shadow-sm">
-              <h3 className="font-semibold text-text mb-4">ข้อมูลการทำจ่าย</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-text-muted border-b border-border">
-                    <tr>
-                      <th className="pb-3 font-normal text-left">วิธีการจ่าย</th>
-                      <th className="pb-3 font-normal text-left">วันที่</th>
-                      <th className="pb-3 font-normal text-right">จำนวนเงิน</th>
-                      <th className="pb-3 font-normal text-center">เอกสารแนบ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    <tr>
-                      <td className="py-4 text-text">
-                        {getMethodLabel(request.paymentInfo.method)}
-                      </td>
-                      <td className="py-4 text-text-muted">
-                        {formatThaiDate(request.paymentInfo.date)}
-                      </td>
-                      <td className="py-4 text-text text-right">
-                        {formatBaht(request.paymentInfo.amount).replace(" บาท", "")}
-                      </td>
-                      <td className="py-4 text-center">
-
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 bg-info/10 text-info px-3 py-1 rounded text-xs cursor-pointer hover:bg-info/20 transition border-none"
-                          onClick={async () => {
-                            if (request.paymentInfo?.fileData) {
-                              try {
-                                const res = await fetch(request.paymentInfo.fileData);
-                                const blob = await res.blob();
-                                const fileUrl = URL.createObjectURL(blob);
-                                window.open(fileUrl, "_blank");
-                              } catch (error) {
-                                alert("เกิดข้อผิดพลาดในการดึงไฟล์");
-                              }
-                            } else {
-                              alert(`ไม่พบตัวไฟล์ ${request.paymentInfo?.fileName} ในระบบ`);
-                            }
-                          }}
-                        >
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                          </svg>
-                          ดูไฟล์: {request.paymentInfo.fileName}
-                        </button>
-
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* ปุ่ม Action */}
-          <div className="flex justify-end gap-3 pt-2">
-            {!isTurn && (
-              <Button
-                variant="secondary"
-                onClick={() => router.back()}
-              >
-                กลับไปหน้าหลัก
+      <RequestDetail
+        request={request}
+        actions={
+          myTurn ? (
+            <>
+              <Button variant="danger" onClick={() => setSendBackOpen(true)}>
+                ส่งกลับแก้ไข
               </Button>
-            )}
+              <ButtonLink href={PATHS.approvals} variant="secondary">
+                กลับ
+              </ButtonLink>
+              <Button onClick={openConfirm}>{approveLabel}</Button>
+            </>
+          ) : (
+            <ButtonLink href={PATHS.approvals} variant="secondary" icon={<ArrowLeft />}>
+              กลับรายการ
+            </ButtonLink>
+          )
+        }
+      >
+        <CategoryBudgetCard request={request} />
 
-            {isTurn && (
-              <>
-                <Button
-                  variant="secondary"
-                  onClick={() => router.push(PATHS.approvals)}
+        {!myTurn && (
+          <p className="flex flex-wrap items-center gap-2 text-caption text-text-muted">
+            สถานะปัจจุบัน <StatusBadge status={request.status} /> · คำขอนี้ไม่ได้อยู่ในขั้นที่คุณต้องพิจารณา จึงดูได้อย่างเดียว
+          </p>
+        )}
+
+        {myTurn && isAccountant && (
+          <Card title="ข้อมูลการทำจ่าย" description="บันทึกหลักฐานการโอน/จ่ายเงินจริง (การโอนเงินทำนอกระบบ)">
+            <div className="grid gap-5 md:grid-cols-2">
+              <Field label="วิธีการจ่าย" htmlFor="pay-method" required>
+                <Select
+                  id="pay-method"
+                  value={method}
+                  onChange={(e) => setMethod(e.target.value as PaymentInfo["method"])}
+                  options={PAYMENT_METHOD_OPTIONS}
+                />
+              </Field>
+              <Field label="เลขที่อ้างอิง" htmlFor="pay-ref" hint="เช่น เลขที่รายการโอน หรือเลขที่เช็ค (ไม่บังคับ)">
+                <Input id="pay-ref" value={refNumber} onChange={(e) => setRefNumber(e.target.value)} placeholder="เช่น TRX-20261120-001" />
+              </Field>
+              <Field label="ยอดที่จ่าย (บาท)" htmlFor="pay-amount" required error={payErrors.amount}>
+                <Input
+                  id="pay-amount"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  value={amount}
+                  invalid={!!payErrors.amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
+              </Field>
+              <Field label="วันที่จ่าย" htmlFor="pay-date" required error={payErrors.date}>
+                <Input id="pay-date" type="date" value={payDate} invalid={!!payErrors.date} onChange={(e) => setPayDate(e.target.value)} />
+              </Field>
+              <Field
+                label="ไฟล์หลักฐานการทำจ่าย"
+                htmlFor="pay-file"
+                required
+                className="md:col-span-2"
+                error={payErrors.file}
+                hint={`PDF, PNG หรือ JPG ไม่เกิน ${MAX_FILE_MB} MB`}
+              >
+                <label
+                  htmlFor="pay-file"
+                  className={cn(
+                    "flex h-12 cursor-pointer items-center gap-3 rounded-md border-[1.5px] border-dashed bg-surface px-4 text-body transition hover:bg-primary-soft",
+                    payErrors.file ? "border-danger" : "border-border-input",
+                  )}
                 >
-                  กลับไปหน้าหลัก
-                </Button>
-                <Button
-                  variant="dangerSolid"
-                  onClick={() => setRejectModalOpen(true)}
-                >
-                  ส่งกลับแก้ไข
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    if (isAccountant) {
-                      if (!payFile) {
-                        setPayError("กรุณาแนบไฟล์หลักฐานการทำจ่าย");
-                        return;
-                      }
-                    }
-                    setApproveModalOpen(true);
+                  <Paperclip className="size-5 shrink-0 text-text-muted" aria-hidden />
+                  <span className={cn("min-w-0 flex-1 truncate", payFile ? "text-text" : "text-text-muted")}>
+                    {readingFile ? "กำลังอ่านไฟล์…" : payFile ? payFile.name : "เลือกไฟล์สลิปหรือหลักฐานการจ่าย"}
+                  </span>
+                  <span className="shrink-0 font-medium text-primary">{payFile ? "เปลี่ยนไฟล์" : "เลือกไฟล์"}</span>
+                </label>
+                <input
+                  id="pay-file"
+                  type="file"
+                  accept={ACCEPT_ATTR}
+                  className="sr-only"
+                  onChange={async (e) => {
+                    const input = e.currentTarget;
+                    const file = input.files?.[0];
+                    input.value = ""; // เลือกไฟล์เดิมซ้ำได้
+                    if (!file) return;
+                    setReadingFile(true);
+                    const result = await prepareAttachment(file);
+                    setReadingFile(false);
+                    setPayFile(result.attachment ?? null);
+                    setPayErrors((prev) => ({ ...prev, file: result.error }));
                   }}
-                >
-                  {isAccountant ? "ยืนยันทำจ่าย" : "อนุมัติ"}
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Sidebar ลำดับขั้นการอนุมัติ */}
-        <div className="w-[300px] shrink-0">
-          <div className="bg-surface rounded-lg border border-border p-6 shadow-sm sticky top-6">
-            <h3 className="font-semibold text-text mb-6">ลำดับขั้นการอนุมัติ</h3>
-
-            <div className="space-y-8 relative">
-              {/* เส้นเชื่อม Timeline */}
-              <div className="absolute left-[15px] top-4 bottom-4 w-1 bg-border/50 rounded-full" aria-hidden="true" />
-
-              {/* ขั้นที่ 1: ผู้ยื่นขอเบิก (เสร็จเสมอ) */}
-              <div className="relative flex items-start">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-text-inverse z-10 shrink-0 shadow-[0_0_0_4px_var(--color-surface)]">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <div className="ml-4 mt-1 flex-1">
-                  <h4 className="text-sm font-semibold text-text">ผู้ยื่นขอเบิก</h4>
-                  <p className="text-[12px] mt-0.5 text-primary">โดย : {request.requesterId}</p>
-                </div>
-              </div>
-
-              {/* ขั้นที่ 2: ผู้อนุมัติ (หัวหน้า/ผู้บริหาร) */}
-              <div className="relative flex items-start">
-                <div className={`flex items-center justify-center w-8 h-8 rounded-full z-10 shrink-0 shadow-[0_0_0_4px_var(--color-surface)]
-                  ${request.status === "SENT_BACK" ? "bg-danger text-text-inverse" :
-                    (request.status === "WAITING_ACCOUNTANT" || request.status === "COMPLETED") ? "bg-primary text-text-inverse" :
-                      "bg-surface border-2 border-warning text-warning font-bold"
-                  }
-                `}>
-                  {request.status === "SENT_BACK" ? (
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  ) : (request.status === "WAITING_ACCOUNTANT" || request.status === "COMPLETED") ? (
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    "2"
-                  )}
-                </div>
-                <div className="ml-4 mt-1 flex-1">
-                  <h4 className="text-sm font-semibold text-text">ผู้อนุมัติ</h4>
-                  <p className={`text-[12px] mt-0.5 
-                    ${request.status === "SENT_BACK" ? "text-danger" :
-                      (request.status === "WAITING_ACCOUNTANT" || request.status === "COMPLETED") ? "text-primary" :
-                        "text-[#3B82F6]"}`
-                  }>
-                    {request.status === "SENT_BACK" ? "ส่งกลับไปแก้ไข" :
-                      (request.status === "WAITING_ACCOUNTANT" || request.status === "COMPLETED") ? "อนุมัติเรียบร้อยแล้ว" :
-                        "กำลังรอพิจารณา"}
-                  </p>
-                </div>
-              </div>
-
-              {/* ขั้นที่ 3: รอบัญชีทำจ่าย */}
-              <div className="relative flex items-start">
-                <div className={`flex items-center justify-center w-8 h-8 rounded-full z-10 shrink-0 shadow-[0_0_0_4px_var(--color-surface)]
-                  ${request.status === "COMPLETED" ? "bg-primary text-text-inverse" :
-                    request.status === "WAITING_ACCOUNTANT" ? "bg-surface border-2 border-warning text-warning font-bold" :
-                      "bg-surface border-2 border-border text-border"
-                  }
-                `}>
-                  {request.status === "COMPLETED" ? (
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    "3"
-                  )}
-                </div>
-                <div className="ml-4 mt-1 flex-1">
-                  <h4 className={`text-sm font-semibold ${request.status === "COMPLETED" || request.status === "WAITING_ACCOUNTANT" ? "text-text" : "text-text-muted"}`}>
-                    รอบัญชีตรวจสอบและทำจ่าย
-                  </h4>
-                  <p className={`text-[12px] mt-0.5 
-                    ${request.status === "COMPLETED" ? "text-primary" :
-                      request.status === "WAITING_ACCOUNTANT" ? "text-[#3B82F6]" :
-                        "text-border"}`
-                  }>
-                    {request.status === "COMPLETED" ? "ทำจ่ายเรียบร้อยแล้ว" :
-                      request.status === "WAITING_ACCOUNTANT" ? "กำลังรอพิจารณา" :
-                        "-"}
-                  </p>
-                </div>
-              </div>
-
+                />
+                {payFile && (
+                  <div className="mt-2 flex items-center gap-2 text-caption text-text-muted">
+                    ตรวจสอบไฟล์ก่อนยืนยัน: <AttachmentChip name={payFile.name} data={payFile.data} />
+                  </div>
+                )}
+              </Field>
             </div>
-          </div>
-        </div>
+          </Card>
+        )}
+      </RequestDetail>
 
-      </div>
-
-      {/* Modal ยืนยัน / อนุมัติ */}
       <ConfirmModal
-        open={approveModalOpen}
-        onClose={() => setApproveModalOpen(false)}
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
         onConfirm={handleApprove}
-        title={isAccountant ? "ยืนยันการทำจ่าย?" : "ยืนยันการอนุมัติคำขอนี้?"}
-        description="เมื่อยืนยันแล้ว คำขอจะถูกส่งไปยังขั้นตอนถัดไป"
-        confirmLabel={isAccountant ? "ยืนยันทำจ่าย" : "อนุมัติ"}
+        loading={approving}
+        title={isAccountant ? "ยืนยันการทำจ่ายคำขอนี้?" : "ยืนยันการอนุมัติคำขอนี้?"}
+        description={
+          isAccountant
+            ? `คำขอ ${request.id} จะเปลี่ยนเป็น "จ่ายแล้ว" ยอด ${formatBaht(Number(amount) || 0)} และตัดเป็นยอดใช้จริงของหมวด`
+            : `คำขอ ${request.id} (${formatBaht(request.totalAmount)}) จะถูกส่งต่อไปยังฝ่ายบัญชีเพื่อทำจ่าย`
+        }
+        confirmLabel={approveLabel}
         cancelLabel="กลับ"
-        loading={approveLoading}
       />
 
       <Modal
-        open={rejectModalOpen}
-        onClose={() => { setRejectModalOpen(false); setRejectError(""); }}
-        title={<div className="bg-danger -m-8 mb-6 p-6 rounded-t-lg"><h2 className="text-text-inverse text-xl font-medium">หมายเหตุการส่งกลับ</h2></div>}
-        size="md"
+        open={sendBackOpen}
+        onClose={() => {
+          setSendBackOpen(false);
+          setNoteError("");
+        }}
+        title="หมายเหตุการส่งกลับแก้ไข"
+        description="ผู้ขอจะเห็นหมายเหตุนี้บนหน้าคำขอ แล้วแก้ไขยื่นใหม่หรือยกเลิกคำขอได้"
         footer={
-          <div className="flex justify-center gap-4 w-full">
-            <Button variant="secondary" onClick={() => setRejectModalOpen(false)} disabled={rejectLoading} className="px-8 py-2">กลับ</Button>
-            <Button variant="dangerSolid" onClick={handleReject} loading={rejectLoading} className="px-8 py-2">ยืนยัน</Button>
-          </div>
+          <>
+            <Button variant="secondary" onClick={() => setSendBackOpen(false)} disabled={sendingBack}>
+              กลับ
+            </Button>
+            <Button variant="dangerSolid" onClick={handleSendBack} loading={sendingBack}>
+              ยืนยันส่งกลับแก้ไข
+            </Button>
+          </>
         }
       >
-        <div className="px-2 pb-4">
-          <textarea
-            className="w-full bg-surface border border-border-input rounded-md p-4 text-sm text-text min-h-[150px] focus:outline-none focus:ring-1 focus:ring-primary resize-none"
-            placeholder="พิมพ์สาเหตุการส่งกลับแก้ไข..."
-            value={rejectNote}
-            onChange={(e) => setRejectNote(e.target.value)}
+        <Field label="เหตุผลที่ส่งกลับ" htmlFor="send-back-note" required error={noteError}>
+          <Textarea
+            id="send-back-note"
+            value={note}
+            invalid={!!noteError}
+            placeholder="เช่น ใบเสร็จรายการที่ 2 ไม่ชัด กรุณาแนบใหม่"
+            onChange={(e) => {
+              setNote(e.target.value);
+              setNoteError("");
+            }}
           />
-          {rejectError && <p className="text-danger text-sm mt-2">{rejectError}</p>}
-        </div>
+        </Field>
       </Modal>
-    </div>
+    </>
+  );
+}
+
+/** งบของหมวดที่คำขอนี้เบิก — ผู้อนุมัติใช้ประกอบการตัดสินใจ */
+function CategoryBudgetCard({ request }: { request: ReimburseRequest }) {
+  const projects = useProjects();
+  const requests = useRequests();
+  const adjustments = useAdjustments();
+  const project = projects.find((p) => p.id === request.projectId);
+
+  const budget = useMemo(
+    () => (project ? getCategoryBudget(project, request.categoryId, requests, adjustments) : undefined),
+    [project, request.categoryId, requests, adjustments],
+  );
+  if (!project || !budget) return null;
+
+  const overBy = budget.remaining < 0 ? -budget.remaining : 0;
+  const items = [
+    { label: "งบจัดสรรของหมวด", value: budget.allocated },
+    { label: "ใช้จริงแล้ว", value: budget.used },
+    { label: "จองไว้ (รวมคำขอนี้)", value: budget.reserved },
+    { label: "คงเหลือ", value: budget.remaining, tone: overBy > 0 ? "danger" : "primary" },
+  ];
+
+  return (
+    <Card title="งบประมาณของหมวดนี้" description={`${project.name} · ${getCategoryName(project, request.categoryId)}`}>
+      <dl className="grid gap-4 sm:grid-cols-4">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-md bg-primary-soft px-4 py-3">
+            <dt className="text-caption text-text-muted">{item.label}</dt>
+            <dd
+              className={cn(
+                "mt-1 text-section font-bold",
+                item.tone === "danger" ? "text-danger" : item.tone === "primary" ? "text-primary" : "text-text",
+              )}
+            >
+              {formatNumber(item.value)} <span className="text-caption font-medium text-text-muted">บาท</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {overBy > 0 && (
+        <p role="alert" className="mt-4 flex items-start gap-2 rounded-md border-[1.5px] border-warning bg-warning-soft px-4 py-3 text-caption text-warning-strong">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          หมวดนี้เกินงบ {formatBaht(overBy)} — ควรส่งกลับแก้ไข หรือให้ฝ่ายบัญชีปรับปรุงงบก่อนอนุมัติ
+        </p>
+      )}
+    </Card>
   );
 }

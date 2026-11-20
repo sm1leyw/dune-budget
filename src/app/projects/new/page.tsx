@@ -8,8 +8,10 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Calendar, ChevronDown, FileText, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, FileText, Plus, Trash2, X } from "lucide-react";
 import { PATHS } from "@/config/routes";
+import { ACCEPT_ATTR, MAX_FILE_MB, openAttachment, prepareAttachment } from "@/lib/files";
+import type { Attachment } from "@/types";
 import { MOCK_USERS } from "@/data/mock/users";
 import { createProject } from "@/store/projects";
 
@@ -39,7 +41,7 @@ export default function NewProjectPage() {
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [fileList, setFileList] = useState<string[]>([]);
+  const [fileList, setFileList] = useState<Attachment[]>([]);
   // เปลี่ยน key เพื่อรีเซ็ต input file เมื่อผู้ใช้กดลบไฟล์
   const [fileInputKey, setFileInputKey] = useState(0);
   const [purpose, setPurpose] = useState("");
@@ -100,18 +102,29 @@ export default function NewProjectPage() {
     }
   };
 
-  // การอัปโหลดไฟล์จำลอง (รองรับหลายไฟล์)
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      const newNames = Array.from(files).map((f) => f.name);
-      setFileList((prev) => Array.from(new Set([...prev, ...newNames])));
-      setFileInputKey((prev) => prev + 1);
+  // แนบไฟล์ (หลายไฟล์): ตรวจชนิด/ขนาด อ่านเป็น Data URL และเช็กพื้นที่ก่อนเก็บ
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    setFileInputKey((prev) => prev + 1);
+    if (files.length === 0) return;
+    const added: Attachment[] = [];
+    const problems: string[] = [];
+    let reserved = fileList.reduce((sum, f) => sum + (f.data?.length ?? 0), 0);
+    for (const file of files) {
+      const result = await prepareAttachment(file, reserved);
+      if (result.error !== undefined) {
+        problems.push(`${file.name}: ${result.error}`);
+      } else {
+        added.push(result.attachment);
+        reserved += result.attachment.data?.length ?? 0;
+      }
     }
+    setFileList((prev) => [...prev.filter((f) => !added.some((a) => a.name === f.name)), ...added]);
+    setError(problems.join(" · "));
   };
 
   const handleRemoveFile = (targetName: string) => {
-    setFileList((prev) => prev.filter((name) => name !== targetName));
+    setFileList((prev) => prev.filter((f) => f.name !== targetName));
   };
 
   // บันทึกโครงการ
@@ -153,6 +166,11 @@ export default function NewProjectPage() {
       }
     }
 
+    if (fileList.length === 0) {
+      setError("กรุณาแนบไฟล์เอกสารอนุมัติโครงการอย่างน้อย 1 ไฟล์");
+      return;
+    }
+
     const newProj = createProject({
       name: name.trim(),
       purpose: purpose.trim(),
@@ -160,6 +178,7 @@ export default function NewProjectPage() {
       ownerId,
       startDate,
       endDate,
+      attachments: fileList,
       categories: categories.map((c) => ({
         id: "",
         name: c.name.trim(),
@@ -310,14 +329,14 @@ export default function NewProjectPage() {
                       key={fileInputKey}
                       type="file"
                       multiple
-                      accept=".pdf,.jpg,.jpeg,.png"
+                      accept={ACCEPT_ATTR}
                       onChange={handleFileChange}
                       className="hidden"
                     />
                   </label>
                   <span className="text-[11px] text-gray-400">
                     {fileList.length === 0
-                      ? "แนบได้หลายไฟล์ (PDF, JPG, PNG ไม่เกิน 10 MB ต่อไฟล์)"
+                      ? `แนบได้หลายไฟล์ (PDF, JPG, PNG ไม่เกิน ${MAX_FILE_MB} MB ต่อไฟล์)`
                       : `แนบแล้ว ${fileList.length} ไฟล์`}
                   </span>
                 </div>
@@ -326,18 +345,18 @@ export default function NewProjectPage() {
                   <div className="mt-2 grid gap-1.5 border-t border-gray-100 pt-2">
                     {fileList.map((file) => (
                       <div
-                        key={file}
+                        key={file.name}
                         className="flex items-center justify-between rounded-md bg-[#F4F9F6] px-2.5 py-1.5 text-[11px]"
                       >
                         <span className="flex min-w-0 items-center gap-1.5 truncate text-[#007F5F]">
                           <FileText className="size-3.5 shrink-0" />
-                          <span className="truncate">{file}</span>
+                          <button type="button" onClick={() => openAttachment(file.data)} className="truncate hover:underline" title={`เปิดดู ${file.name}`}>{file.name}</button>
                         </span>
                         <button
                           type="button"
-                          onClick={() => handleRemoveFile(file)}
+                          onClick={() => handleRemoveFile(file.name)}
                           className="ml-2 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-medium text-red-500 hover:bg-red-50 transition"
-                          title={`ลบ ${file}`}
+                          title={`ลบ ${file.name}`}
                         >
                           <X className="size-3.5" /> ลบ
                         </button>

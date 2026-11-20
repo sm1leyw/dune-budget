@@ -1,60 +1,15 @@
 /**
  * store/projects.ts — โครงการและการปรับงบ (เจ้าของ: คนที่ 5)
  * -----------------------------------------------------------------------------
- * คนที่ 1 วางโครงให้ (อ่านข้อมูลได้แล้ว) — คนที่ 5 เพิ่มฟังก์ชันสร้าง/ปรับงบ/เสร็จสิ้นโครงการเอง
- *
  * ส่งออก:
  *   projectsStore, adjustmentsStore   store ดิบ
  *   useProjects()                     hook → Project[]
  *   useAdjustments()                  hook → BudgetAdjustment[]
  *   getProjectById(id)                → Project | undefined
  *   getCategoryName(project, catId)   → ชื่อหมวด หรือ "-"
- *
- * TODO (คนที่ 5): createProject, adjustBudget, completeProject
- */
-/**
- * store/projects.ts — โครงการและการปรับงบ (เจ้าของ: คนที่ 5)
- * -----------------------------------------------------------------------------
- * ส่งออก:
- *   projectsStore, adjustmentsStore   store ดิบ
- *   useProjects()                     hook → Project[]
- *   useAdjustments()                  hook → BudgetAdjustment[]
- *   getProjectById(id)                → Project | undefined
- *   getCategoryName(project, catId)   → ชื่อหมวด หรือ "-"
- *   completeProject(id)               → เปลี่ยนสถานะโครงการเป็น COMPLETED
- */
-/**
- * store/projects.ts — โครงการและการปรับงบ (เจ้าของ: คนที่ 5)
- * -----------------------------------------------------------------------------
- * ส่งออก:
- *   projectsStore, adjustmentsStore   store ดิบ
- *   useProjects()                     hook → Project[]
- *   useAdjustments()                  hook → BudgetAdjustment[]
- *   getProjectById(id)                → Project | undefined
- *   getCategoryName(project, catId)   → ชื่อหมวด หรือ "-"
- *   completeProject(id)               → เปลี่ยนสถานะโครงการเป็น COMPLETED
- */
-/**
- * store/projects.ts — โครงการและการปรับงบ (เจ้าของ: คนที่ 5)
- * -----------------------------------------------------------------------------
- * ส่งออก:
- *   projectsStore, adjustmentsStore   store ดิบ
- *   useProjects()                     hook → Project[]
- *   useAdjustments()                  hook → BudgetAdjustment[]
- *   getProjectById(id)                → Project | undefined
- *   getCategoryName(project, catId)   → ชื่อหมวด หรือ "-"
- *   completeProject(id)               → เปลี่ยนสถานะโครงการเป็น COMPLETED
- */
-/**
- * store/projects.ts — โครงการและการปรับงบ (เจ้าของ: คนที่ 5)
- * -----------------------------------------------------------------------------
- * ส่งออก:
- *   projectsStore, adjustmentsStore   store ดิบ
- *   useProjects()                     hook → Project[]
- *   useAdjustments()                  hook → BudgetAdjustment[]
- *   getProjectById(id)                → Project | undefined
- *   getCategoryName(project, catId)   → ชื่อหมวด หรือ "-"
- *   completeProject(id)               → เปลี่ยนสถานะโครงการเป็น COMPLETED
+ *   completeProject(id, byUserId)     → เปลี่ยนสถานะเป็น COMPLETED + บันทึกเวลา/ผู้กด
+ *   adjustBudget(input)               → บันทึกการเพิ่ม/ลดงบของหมวด (ADJ-...)
+ *   createProject(input)              → สร้างโครงการใหม่ + บันทึกประวัติ (CREATE-...)
  */
 import { createPersistentStore } from "@/lib/createStore";
 import { INITIAL_ADJUSTMENTS, INITIAL_PROJECTS } from "@/data/mock/projects";
@@ -83,10 +38,13 @@ export function getCategoryName(project: Project | undefined, categoryId: string
   return project?.categories.find((c) => c.id === categoryId)?.name ?? "-";
 }
 
-/** เสร็จสิ้นโครงการ (เปลี่ยนสถานะเป็น COMPLETED) */
-export function completeProject(id: string): void {
+/** เสร็จสิ้นโครงการ (เปลี่ยนสถานะเป็น COMPLETED) พร้อมบันทึกเวลาและผู้กด */
+export function completeProject(id: string, byUserId?: string): void {
   const current = projectsStore.getState();
-  const next = current.map((p) => (p.id === id ? { ...p, status: "COMPLETED" as const } : p));
+  const completedAt = new Date().toISOString();
+  const next = current.map((p) =>
+    p.id === id ? { ...p, status: "COMPLETED" as const, completedAt, completedBy: byUserId } : p,
+  );
   projectsStore.setState(next);
 }
 
@@ -125,6 +83,7 @@ export function createProject(input: Omit<Project, "id" | "status">): Project {
     reason: "สร้างโครงการใหม่และจัดสรรงบประมาณ",
     byUserId: input.ownerId,
     at: new Date().toISOString(),
+    // ไม่คัดลอกไฟล์ซ้ำ — หน้าประวัติดึงเอกสารจาก project.attachments แทน (ประหยัดพื้นที่ localStorage)
   };
   adjustmentsStore.setState([...adjustmentsStore.getState(), creationRecord]);
 

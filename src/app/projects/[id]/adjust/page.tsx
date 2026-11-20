@@ -14,8 +14,11 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronDown, FileText, Info, X } from "lucide-react";
 import { PATHS } from "@/config/routes";
+import { ACCEPT_ATTR, MAX_FILE_MB, openAttachment, prepareAttachment } from "@/lib/files";
+import type { Attachment } from "@/types";
 import { getCategoryBudget } from "@/lib/budget";
 import { adjustBudget, useAdjustments, useProjects } from "@/store/projects";
+import { useRequests } from "@/store/requests";
 import { useCurrentUser } from "@/store/session";
 
 export default function AdjustBudgetPage() {
@@ -24,6 +27,7 @@ export default function AdjustBudgetPage() {
   const user = useCurrentUser();
   const projects = useProjects();
   const adjustments = useAdjustments();
+  const requests = useRequests();
 
   const project = useMemo(() => {
     return projects.find((p) => p.id === id);
@@ -34,11 +38,9 @@ export default function AdjustBudgetPage() {
   const [adjustType, setAdjustType] = useState<"INCREASE" | "DECREASE">("INCREASE");
   const [amount, setAmount] = useState<string>("");
   const [categoryId, setCategoryId] = useState<string>("");
-  const [fileList, setFileList] = useState<string[]>([]);
+  const [fileList, setFileList] = useState<Attachment[]>([]);
   const [fileInputKey, setFileInputKey] = useState<number>(0);
-  const [reason, setReason] = useState<string>(
-    "เนื่องจากสถิติล็อกอินหลักชักนำเราจึงต้องถอนงบในทุนวิสถูออกไปส่วนรายละเอียด มีอยู่ในไฟล์ที่แนบไว้ให้ครับ"
-  );
+  const [reason, setReason] = useState<string>("");
   const [error, setError] = useState<string>("");
 
   // หมวดหมู่ในโครงการที่เลือก
@@ -48,18 +50,29 @@ export default function AdjustBudgetPage() {
 
   const categories = currentProject?.categories ?? [];
 
-  // จัดการอัปโหลดไฟล์หลายไฟล์
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      const newNames = Array.from(files).map((file) => file.name);
-      setFileList((prev) => Array.from(new Set([...prev, ...newNames])));
-      setFileInputKey((prev) => prev + 1);
+  // แนบไฟล์ (หลายไฟล์): ตรวจชนิด/ขนาด อ่านเป็น Data URL และเช็กพื้นที่ก่อนเก็บ
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    setFileInputKey((prev) => prev + 1);
+    if (files.length === 0) return;
+    const added: Attachment[] = [];
+    const problems: string[] = [];
+    let reserved = fileList.reduce((sum, f) => sum + (f.data?.length ?? 0), 0);
+    for (const file of files) {
+      const result = await prepareAttachment(file, reserved);
+      if (result.error !== undefined) {
+        problems.push(`${file.name}: ${result.error}`);
+      } else {
+        added.push(result.attachment);
+        reserved += result.attachment.data?.length ?? 0;
+      }
     }
+    setFileList((prev) => [...prev.filter((f) => !added.some((a) => a.name === f.name)), ...added]);
+    setError(problems.join(" · "));
   };
 
   const handleRemoveFile = (targetName: string) => {
-    setFileList((prev) => prev.filter((name) => name !== targetName));
+    setFileList((prev) => prev.filter((f) => f.name !== targetName));
   };
 
   // ยืนยันการปรับปรุงงบประมาณ
@@ -89,11 +102,11 @@ export default function AdjustBudgetPage() {
       return;
     }
 
-    // ตรวจสอบงบปัจจุบันของหมวดก่อนปรับลด เพื่อไม่ให้ยอดติดลบ
+    // ปรับลดได้ไม่เกินงบคงเหลือของหมวด (หักยอดจ่ายแล้วและยอดจองรออนุมัติ) เพื่อไม่ให้หมวดติดลบ
     if (adjustType === "DECREASE") {
-      const categoryBudget = getCategoryBudget(currentProject, categoryId, [], adjustments);
-      if (numAmount > categoryBudget.allocated) {
-        setError(`ไม่สามารถลดงบเกินยอดปัจจุบันได้ (เหลือ ${categoryBudget.allocated.toLocaleString()} บาท)`);
+      const categoryBudget = getCategoryBudget(currentProject, categoryId, requests, adjustments);
+      if (numAmount > categoryBudget.remaining) {
+        setError(`ลดงบได้ไม่เกินงบคงเหลือของหมวด (คงเหลือ ${Math.max(0, categoryBudget.remaining).toLocaleString()} บาท)`);
         return;
       }
     }
@@ -105,7 +118,8 @@ export default function AdjustBudgetPage() {
       categoryId,
       amount: finalAmount,
       reason: reason.trim(),
-      byUserId: user?.id ?? "USR-004",
+      byUserId: user?.id ?? "",
+      attachments: fileList,
     });
 
     // กลับไปหน้ารายละเอียดโครงการ
@@ -232,14 +246,14 @@ export default function AdjustBudgetPage() {
                     key={fileInputKey}
                     type="file"
                     multiple
-                    accept=".pdf,.jpg,.jpeg,.png"
+                    accept={ACCEPT_ATTR}
                     onChange={handleFileChange}
                     className="hidden"
                   />
                 </label>
                 <span className="text-[11px] text-gray-400">
                   {fileList.length === 0
-                    ? "แนบได้หลายไฟล์ (PDF, JPG, PNG ไม่เกิน 10 MB ต่อไฟล์)"
+                    ? `แนบได้หลายไฟล์ (PDF, JPG, PNG ไม่เกิน ${MAX_FILE_MB} MB ต่อไฟล์)`
                     : `แนบแล้ว ${fileList.length} ไฟล์`}
                 </span>
               </div>
@@ -248,18 +262,18 @@ export default function AdjustBudgetPage() {
                 <div className="mt-2 grid gap-1.5 border-t border-gray-100 pt-2">
                   {fileList.map((file) => (
                     <div
-                      key={file}
+                      key={file.name}
                       className="flex items-center justify-between rounded-md bg-[#F4F9F6] px-2.5 py-1.5 text-[11px]"
                     >
                       <span className="flex min-w-0 items-center gap-1.5 truncate text-[#007F5F]">
                         <FileText className="size-3.5 shrink-0" />
-                        <span className="truncate">{file}</span>
+                        <button type="button" onClick={() => openAttachment(file.data)} className="truncate hover:underline" title={`เปิดดู ${file.name}`}>{file.name}</button>
                       </span>
                       <button
                         type="button"
-                        onClick={() => handleRemoveFile(file)}
+                        onClick={() => handleRemoveFile(file.name)}
                         className="ml-2 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-medium text-red-500 hover:bg-red-50"
-                        title={`ลบ ${file}`}
+                        title={`ลบ ${file.name}`}
                       >
                         <X className="size-3.5" /> ลบ
                       </button>

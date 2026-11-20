@@ -14,3 +14,4 @@ export * from "./Table";
 export * from "./FilterBar";
 export * from "./Stepper";
 export * from "./Misc";
+export * from "./AttachmentChip";

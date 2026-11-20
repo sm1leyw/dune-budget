@@ -87,7 +87,7 @@ export function StepReview({
             <span className="flex items-center gap-4">
               <button
                 type="button"
-                onClick={() => openFilePreview(i.fileData)}
+                onClick={() => openFilePreview(i.fileData, i.fileName)}
                 title="คลิกเพื่อเปิดดูไฟล์"
                 className="flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-caption text-primary transition hover:bg-primary-soft hover:underline"
               >

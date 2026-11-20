@@ -1,5 +1,6 @@
 /**
  * data/mock/projects.ts — โครงการตัวอย่าง (เจ้าของ: คนที่ 5 — คนที่ 1 ใส่ชุดแรกไว้ให้)
+ * ไฟล์แนบตัวอย่างอยู่ใน public/mock-files (เป็นเอกสารสมมติ ใช้ทดสอบการเปิดไฟล์)
  */
 import type { BudgetAdjustment, Project } from "@/types";
 
@@ -12,6 +13,10 @@ export const INITIAL_PROJECTS: Project[] = [
     ownerId: "EMP-002",
     startDate: "2026-11-01",
     endDate: "2026-12-30",
+    attachments: [
+      { name: "tor-DUNE-001.pdf", data: "/mock-files/tor-DUNE-001.pdf" },
+      { name: "approval-DUNE-001.pdf", data: "/mock-files/approval-DUNE-001.pdf" },
+    ],
     status: "ACTIVE",
     categories: [
       { id: "DUNE-001-C1", name: "ค่าสถานที่/การเดินทาง", allocated: 120_000 },
@@ -27,6 +32,10 @@ export const INITIAL_PROJECTS: Project[] = [
     ownerId: "EMP-002",
     startDate: "2026-11-01",
     endDate: "2026-12-30",
+    attachments: [
+      { name: "tor-DUNE-002.pdf", data: "/mock-files/tor-DUNE-002.pdf" },
+      { name: "approval-DUNE-002.pdf", data: "/mock-files/approval-DUNE-002.pdf" },
+    ],
     status: "ACTIVE",
     categories: [
       { id: "DUNE-002-C1", name: "ค่าอุปกรณ์เครือข่าย", allocated: 140_000 },

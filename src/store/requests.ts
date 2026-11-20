@@ -22,7 +22,7 @@ import { createPersistentStore } from "@/lib/createStore";
 import { canCancel, canEdit, getInitialStatus } from "@/lib/workflow";
 import { nowISO } from "@/lib/format";
 import { INITIAL_REQUESTS } from "@/data/mock/requests";
-import type { ExpenseItem, ReimburseRequest, User, RefundMethod } from "@/types";
+import type { ExpenseItem, ReimburseRequest, User } from "@/types";
 
 export const requestsStore = createPersistentStore<ReimburseRequest[]>("dune_requests", INITIAL_REQUESTS);
 

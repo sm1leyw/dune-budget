@@ -30,9 +30,9 @@ export interface ExpenseItem {
   amount: number;
   /** วันที่แบบ ISO "2026-11-02" — แสดงผลด้วย formatThaiDate() */
   date: string;
-  /** ชื่อไฟล์หลักฐาน (ช่วง frontend เก็บแค่ชื่อไฟล์) */
+  /** ชื่อไฟล์หลักฐาน */
   fileName?: string;
-  /** ข้อมูลไฟล์แบบ Base64 Data URL สำหรับเปิดดูตัวอย่าง */
+  /** ไฟล์สำหรับเปิดดู: Base64 Data URL (ไฟล์ที่ผู้ใช้แนบ) หรือที่อยู่ไฟล์ เช่น "/mock-files/x.pdf" (ข้อมูลตัวอย่าง) */
   fileData?: string;
 }
 

@@ -100,7 +100,7 @@ export function StepItems({
                       <span className="flex max-w-full items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1 text-caption text-primary">
                         <button
                           type="button"
-                          onClick={() => openFilePreview(row.fileData)}
+                          onClick={() => openFilePreview(row.fileData, row.fileName)}
                           className="truncate hover:underline"
                           title="คลิกเพื่อเปิดดูไฟล์"
                         >
@@ -152,6 +152,7 @@ export function StepItems({
         open={attachRowId !== null}
         title={isClearance ? "แนบใบเสร็จ" : "แนบหลักฐานการเบิกจ่าย"}
         onClose={() => setAttachRowId(null)}
+        reservedChars={values.items.reduce((sum, r) => sum + (r.id !== attachRowId && r.fileData?.startsWith("data:") ? r.fileData.length : 0), 0)}
         onSave={(fileName, fileData) => attachRowId && updateRow(attachRowId, { fileName, fileData })}
       />
     </div>
