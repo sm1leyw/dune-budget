@@ -1,16 +1,25 @@
 "use client";
 /**
- * /projects/adjustments — ประวัติการปรับงบ / เพิ่มโครงการ · เจ้าของ: คนที่ 5 · เข้าได้: บัญชี
+ * /projects/adjustments — ประวัติการปรับงบ / เพิ่มโครงการ / เสร็จสิ้นโครงการ · เจ้าของ: คนที่ 5 · เข้าได้: บัญชี
  * -----------------------------------------------------------------------------
  * ตารางจาก useAdjustments(): วันที่ · โครงการ · ประเภท · หมวด · จำนวน (+/-) · เหตุผล · ผู้ทำ
- * <FilterBar>: ค้นหา (โครงการ/เหตุผล/ผู้ทำ) · กรองโครงการ · ช่วงวันที่
+ * <FilterBar>: ค้นหา (โครงการ/เหตุผล/ผู้ทำ) · กรองโครงการ · กรองประเภท · ช่วงวันที่
+ * ประเภท (getEventKind): เพิ่มโครงการ · ปรับเพิ่ม/ลดงบ · เสร็จสิ้นโครงการ · เปิดโครงการอีกครั้ง
  */
 import { useMemo, useState } from "react";
 import { AttachmentChip, FilterBar } from "@/components/ui";
 import { getProjectAttachments } from "@/lib/files";
+import { getEventKind } from "@/lib/projectClosure";
 import { formatNumber, formatThaiDate } from "@/lib/format";
 import { getCategoryName, useAdjustments, useProjects } from "@/store/projects";
 import { getUserById } from "@/store/session";
+
+const KIND_OPTIONS = [
+  { value: "CREATE", label: "เพิ่มโครงการ" },
+  { value: "ADJUST", label: "ปรับงบ (+/-)" },
+  { value: "COMPLETE", label: "เสร็จสิ้นโครงการ" },
+  { value: "REOPEN", label: "เปิดโครงการอีกครั้ง" },
+];
 
 export default function ProjectsAdjustmentsPage() {
   const projects = useProjects();
@@ -18,6 +27,7 @@ export default function ProjectsAdjustmentsPage() {
 
   const [search, setSearch] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [kind, setKind] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -26,6 +36,7 @@ export default function ProjectsAdjustmentsPage() {
     const q = search.trim().toLowerCase();
     return adjustments
       .filter((a) => !projectId || a.projectId === projectId)
+      .filter((a) => !kind || getEventKind(a) === kind)
       .filter((a) => {
         const day = a.at.slice(0, 10);
         return (!dateFrom || day >= dateFrom) && (!dateTo || day <= dateTo);
@@ -37,7 +48,7 @@ export default function ProjectsAdjustmentsPage() {
         return [a.projectId, projectName, a.reason, editorName].some((text) => text.toLowerCase().includes(q));
       })
       .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-  }, [adjustments, projects, search, projectId, dateFrom, dateTo]);
+  }, [adjustments, projects, search, projectId, kind, dateFrom, dateTo]);
 
   return (
     <div className="min-h-full pb-12">
@@ -68,6 +79,7 @@ export default function ProjectsAdjustmentsPage() {
                 onChange: setProjectId,
                 options: projects.map((p) => ({ value: p.id, label: p.name })),
               },
+              { key: "kind", label: "ประเภท", value: kind, onChange: setKind, options: KIND_OPTIONS },
             ]}
             dateFrom={dateFrom}
             dateTo={dateTo}
@@ -78,6 +90,7 @@ export default function ProjectsAdjustmentsPage() {
             onClear={() => {
               setSearch("");
               setProjectId("");
+              setKind("");
               setDateFrom("");
               setDateTo("");
             }}
@@ -112,7 +125,9 @@ export default function ProjectsAdjustmentsPage() {
                   history.map((adjustment) => {
                     const project = projects.find((item) => item.id === adjustment.projectId);
                     const editor = getUserById(adjustment.byUserId);
-                    const isProjectCreated = adjustment.id.startsWith("CREATE-");
+                    const eventKind = getEventKind(adjustment);
+                    const isProjectCreated = eventKind === "CREATE";
+                    const isClosureEvent = eventKind === "COMPLETE" || eventKind === "REOPEN";
                     const isIncrease = adjustment.amount > 0;
                     // เพิ่มโครงการ → เอกสารจัดตั้งของโครงการ · ปรับงบ → เอกสารที่แนบตอนปรับ
                     const docs = isProjectCreated ? getProjectAttachments(project) : (adjustment.attachments ?? []);
@@ -129,21 +144,35 @@ export default function ProjectsAdjustmentsPage() {
                             className={`inline-flex rounded-full border px-3 py-0.5 text-[10px] font-medium ${
                               isProjectCreated
                                 ? "border-sky-300 bg-sky-50 text-sky-600"
-                                : isIncrease
-                                  ? "border-[#39C99A] bg-[#E4F8F0] text-[#007F5F]"
-                                  : "border-red-300 bg-red-50 text-red-500"
+                                : eventKind === "COMPLETE"
+                                  ? "border-gray-400 bg-gray-100 text-gray-700"
+                                  : eventKind === "REOPEN"
+                                    ? "border-amber-300 bg-amber-50 text-amber-700"
+                                    : isIncrease
+                                      ? "border-[#39C99A] bg-[#E4F8F0] text-[#007F5F]"
+                                      : "border-red-300 bg-red-50 text-red-500"
                             }`}
                           >
-                            {isProjectCreated ? "เพิ่มโครงการ" : isIncrease ? "ปรับเพิ่มงบ (+)" : "ปรับลดงบ (-)"}
+                            {isProjectCreated
+                              ? "เพิ่มโครงการ"
+                              : eventKind === "COMPLETE"
+                                ? "เสร็จสิ้นโครงการ"
+                                : eventKind === "REOPEN"
+                                  ? "เปิดโครงการอีกครั้ง"
+                                  : isIncrease
+                                    ? "ปรับเพิ่มงบ (+)"
+                                    : "ปรับลดงบ (-)"}
                           </span>
                         </td>
                         <td className="px-2 py-3 text-gray-600">
-                          {isProjectCreated ? "-" : getCategoryName(project, adjustment.categoryId)}
+                          {isProjectCreated || isClosureEvent ? "-" : getCategoryName(project, adjustment.categoryId)}
                         </td>
                         <td className="whitespace-nowrap px-2 py-3 text-right text-gray-700">
                           {isProjectCreated
                             ? formatNumber(project?.categories.reduce((sum, cat) => sum + cat.allocated, 0) ?? 0)
-                            : `${isIncrease ? "+" : "-"}${formatNumber(Math.abs(adjustment.amount))}`}
+                            : isClosureEvent
+                              ? "-"
+                              : `${isIncrease ? "+" : "-"}${formatNumber(Math.abs(adjustment.amount))}`}
                         </td>
                         <td className="max-w-[220px] px-2 py-3 text-gray-600" title={adjustment.reason}>
                           <p className="line-clamp-2">{adjustment.reason || "-"}</p>

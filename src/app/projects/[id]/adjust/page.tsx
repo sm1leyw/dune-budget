@@ -84,6 +84,10 @@ export default function AdjustBudgetPage() {
       setError("กรุณาเลือกโครงการ");
       return;
     }
+    if (currentProject.status === "COMPLETED") {
+      setError("โครงการนี้เสร็จสิ้นแล้ว ปรับงบไม่ได้ (ต้องเปิดโครงการอีกครั้งก่อน)");
+      return;
+    }
     if (!categoryId) {
       setError("กรุณาเลือกหมวดหมู่ย่อยที่ต้องการปรับงบ");
       return;
@@ -168,7 +172,7 @@ export default function AdjustBudgetPage() {
                   className="w-full appearance-none rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 pr-10 text-[12px] text-gray-800 focus:border-[#007F5F] focus:outline-none"
                 >
                   <option value="">-- เลือกโครงการ --</option>
-                  {projects.map((p) => (
+                  {projects.filter((p) => p.status === "ACTIVE" || p.id === selectedProjectId).map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} ({p.id})
                     </option>

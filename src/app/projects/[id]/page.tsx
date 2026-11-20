@@ -12,22 +12,17 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Check, Download, Eye, FileText, X } from "lucide-react";
+import { ArrowLeft, Check, RotateCcw } from "lucide-react";
 import { PATHS } from "@/config/routes";
 import { getCategoryBudget, getProjectBudget } from "@/lib/budget";
 import { getProjectAttachments } from "@/lib/files";
-import { AttachmentChip } from "@/components/ui";
-import { formatNumber, formatThaiDateLong } from "@/lib/format";
-import { completeProject, useAdjustments, useProjects } from "@/store/projects";
+import { AttachmentChip, StatusBadge } from "@/components/ui";
+import { formatNumber, formatThaiDate, formatThaiDateLong } from "@/lib/format";
+import { getCompletionBlockers } from "@/lib/projectClosure";
+import { useAdjustments, useProjects } from "@/store/projects";
 import { useRequests } from "@/store/requests";
 import { getUserById, useCurrentUser } from "@/store/session";
-
-interface DocumentModalData {
-  title: string;
-  docType: string;
-  fileSize: string;
-  updatedAt: string;
-}
+import { CompleteProjectModal, ReopenProjectModal } from "./_components/ProjectClosureModals";
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -39,8 +34,7 @@ export default function ProjectDetailPage() {
   // State สำหรับเปิด/ปิด Popup ยืนยันเสร็จสิ้นโครงการ
   const [showCompleteModal, setShowCompleteModal] = useState(false);
 
-  // State สำหรับเปิดดูไฟล์เอกสาร (PDF Viewer Modal)
-  const [viewingDoc, setViewingDoc] = useState<DocumentModalData | null>(null);
+  const [showReopenModal, setShowReopenModal] = useState(false);
 
   // ดึงข้อมูลโครงการจาก reactive projectsStore ผ่าน useProjects()
   const project = useMemo(() => {
@@ -58,6 +52,15 @@ export default function ProjectDetailPage() {
     if (!project) return [];
     return requests.filter((r) => r.projectId === project.id);
   }, [project, requests]);
+
+  // เงื่อนไขการเสร็จสิ้นโครงการ (คำขอค้าง / เงินยืมค้างเคลียร์)
+  const blockers = useMemo(() => getCompletionBlockers(id, requests), [id, requests]);
+
+  // รายการเสร็จสิ้นล่าสุดในประวัติ (เก็บไฟล์หลักฐานไว้)
+  const completionRecord = useMemo(
+    () => adjustments.find((a) => a.id === project?.completion?.recordId),
+    [adjustments, project],
+  );
 
   const owner = project ? getUserById(project.ownerId) : undefined;
   const isAccountant = user?.role === "ACCOUNTANT";
@@ -78,11 +81,9 @@ export default function ProjectDetailPage() {
 
   const isCompleted = project.status === "COMPLETED";
 
-  // ฟังก์ชันกดยืนยันเสร็จสิ้นโครงการ
-  const handleConfirmComplete = () => {
-    completeProject(project.id, user?.id);
-    setShowCompleteModal(false);
-  };
+  const completion = project.completion;
+  const closedBy = completion ? getUserById(completion.byUserId)?.name ?? completion.byUserId : "";
+  const closureFiles = completionRecord?.attachments ?? [];
 
   return (
     <div className="min-h-full space-y-6 pb-12">
@@ -97,12 +98,22 @@ export default function ProjectDetailPage() {
         </Link>
 
         {isCompleted ? (
-          // แถบแจ้งเตือนสีเขียวมิ้นต์อ่อนเมื่อโครงการเสร็จสิ้นแล้ว (ตามรูป 100%)
-          <div className="rounded-lg bg-[#E2F1EA] px-4 py-2 text-[12px] text-gray-700 shadow-sm">
-            เสร็จสิ้นโครงการ
-            {project.completedAt ? ` เมื่อ ${formatThaiDateLong(project.completedAt)}` : ""}
-            {project.completedBy ? ` โดย ${getUserById(project.completedBy)?.name ?? project.completedBy}` : ""} • งบคงเหลือ{" "}
-            {formatNumber(budget.remaining)} บาท คืนเข้าส่วนกลางแล้ว • ไม่เปิดรับคำขอเบิกใหม่
+          // แถบแจ้งเตือนสีเขียวมิ้นต์อ่อนเมื่อโครงการเสร็จสิ้นแล้ว (ตาม Figma) + ปุ่มเปิดโครงการอีกครั้ง (บัญชี)
+          <div className="flex items-center gap-2">
+            <div className="rounded-lg bg-[#E2F1EA] px-4 py-2 text-[12px] text-gray-700 shadow-sm">
+              เสร็จสิ้นโครงการ
+              {completion ? ` เมื่อ ${formatThaiDate(completion.at)} โดย ${closedBy}` : ""} • งบคงเหลือ{" "}
+              {formatNumber(completion?.remaining ?? budget.remaining)} บาท คืนเข้างบกลางแล้ว • ไม่เปิดรับคำขอเบิกใหม่
+            </div>
+            {isAccountant && (
+              <button
+                type="button"
+                onClick={() => setShowReopenModal(true)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 text-[12px] font-medium text-gray-700 transition hover:bg-gray-50"
+              >
+                <RotateCcw className="size-3.5" /> เปิดโครงการอีกครั้ง
+              </button>
+            )}
           </div>
         ) : (
           isAccountant && (
@@ -256,28 +267,21 @@ export default function ProjectDetailPage() {
             </p>
           </div>
 
-          {/* สถานะโครงการ */}
+          {/* สถานะโครงการ + หลักฐานการปิดโครงการ (ตาม Figma: ปุ่มดูไฟล์ข้างสถานะ) */}
           <div className="border-b border-gray-100 pb-3">
             <p className="text-gray-400">สถานะโครงการ</p>
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="font-semibold text-[#007F5F]">
                 {isCompleted ? "เสร็จสิ้นแล้ว" : "กำลังดำเนินการ"}
               </span>
-              <button
-                type="button"
-                onClick={() =>
-                  setViewingDoc({
-                    title: `รายงานสรุปสถานะ_${project.id}.pdf`,
-                    docType: "เอกสารรายงานสถานะโครงการ",
-                    fileSize: "1.2 MB",
-                    updatedAt: "30 พ.ย. 2569",
-                  })
-                }
-                className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-0.5 text-[11px] text-gray-600 shadow-xs hover:border-[#007F5F] hover:text-[#007F5F] transition"
-              >
-                <FileText className="size-3 text-gray-400" /> ดูไฟล์
-              </button>
+              {isCompleted &&
+                closureFiles.map((doc) => (
+                  <AttachmentChip key={doc.name} name={doc.name} data={doc.data} className="text-[11px]" />
+                ))}
             </div>
+            {isCompleted && completion?.note && (
+              <p className="mt-1 text-[11px] text-gray-500">หมายเหตุการปิด: {completion.note}</p>
+            )}
           </div>
 
           {/* รายละเอียดและวัตถุประสงค์ */}
@@ -338,9 +342,8 @@ export default function ProjectDetailPage() {
                       </td>
                       <td className="py-3.5 px-3 text-center text-gray-700">{requester?.name ?? "-"}</td>
                       <td className="py-3.5 pl-3 text-center">
-                        <span className="inline-flex items-center rounded-full bg-[#0284C7] px-3 py-0.5 text-[10px] font-medium text-white">
-                          ● {req.status === "COMPLETED" ? "จ่ายแล้ว" : "อยู่ระหว่างพิจารณา"}
-                        </span>
+                        {/* ใช้ป้ายสถานะกลาง จะได้เห็นคำขอที่ส่งกลับ/ยกเลิกถูกต้อง (เดิมแสดงแค่ จ่ายแล้ว / อยู่ระหว่างพิจารณา) */}
+                        <StatusBadge status={req.status} />
                       </td>
                     </tr>
                   );
@@ -351,182 +354,19 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* ========================================================= */}
-      {/* POPUP MODAL: แสดงตัวอย่างเอกสาร (Document Preview Modal) */}
-      {/* ========================================================= */}
-      {viewingDoc && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="relative flex w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl overflow-hidden">
-            {/* Header ของ Modal */}
-            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 bg-gray-50/60">
-              <div className="flex items-center gap-3">
-                <span className="flex size-9 items-center justify-center rounded-lg bg-[#D7ECE4] text-[#007F5F]">
-                  <FileText className="size-5" />
-                </span>
-                <div>
-                  <h3 className="text-[14px] font-bold text-gray-900">{viewingDoc.title}</h3>
-                  <p className="text-[11px] text-gray-500">
-                    {viewingDoc.docType} • ขนาด {viewingDoc.fileSize} • วันที่ {viewingDoc.updatedAt}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setViewingDoc(null)}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
-              >
-                <X className="size-5" />
-              </button>
-            </div>
-
-            {/* เนื้อหาจำลองของเอกสาร PDF */}
-            <div className="p-6 bg-gray-100/70 max-h-[60vh] overflow-y-auto">
-              <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-xs text-gray-800 space-y-4">
-                <div className="flex items-center justify-between border-b border-gray-100 pb-4">
-                  <div>
-                    <p className="text-[14px] font-bold text-[#007F5F]">Dune Budget Sandworm</p>
-                    <p className="text-[11px] text-gray-500">ระบบขอเบิกงบประมาณโครงการองค์กร</p>
-                  </div>
-                  <span className="rounded bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-[#007F5F] border border-emerald-200">
-                    เอกสารลงนามอนุมัติแล้ว
-                  </span>
-                </div>
-
-                <div className="space-y-2 text-[12px] leading-relaxed">
-                  <p className="font-bold text-[13px] text-gray-900">
-                    เรื่อง: {project.name} (รหัส {project.id})
-                  </p>
-                  <p className="text-gray-600">
-                    เรียน ผู้บริหารและคณะกรรมการพิจารณางบประมาณ
-                  </p>
-                  <p className="text-gray-600 indent-6">
-                    ตามที่หน่วยงาน {project.departments.join(", ")} ได้เสนอขออนุมัติโครงการ{" "}
-                    <strong>{project.name}</strong> ภายใต้งบประมาณรวมจำนวน{" "}
-                    <strong>{formatNumber(budget.allocated)} บาท</strong> โดยมีวัตถุประสงค์เพื่อ:{" "}
-                    {project.purpose}
-                  </p>
-                  <p className="text-gray-600 indent-6">
-                    การดำเนินโครงการมีกำหนดการตั้งแต่วันที่ {formatThaiDateLong(project.startDate)} ถึง{" "}
-                    {formatThaiDateLong(project.endDate)} ผู้รับผิดชอบโครงการคือ{" "}
-                    {owner?.name ?? project.ownerId}
-                  </p>
-                </div>
-
-                {/* ตารางสรุปหมวดในเอกสาร */}
-                <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-[11px]">
-                  <p className="font-semibold text-gray-700 mb-2">สรุปกรอบวงเงินตามหมวดค่าใช้จ่าย:</p>
-                  <div className="space-y-1 text-gray-600">
-                    {project.categories.map((c) => (
-                      <div key={c.id} className="flex justify-between">
-                        <span>• {c.name}</span>
-                        <span className="font-medium">{formatNumber(c.allocated)} บาท</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* ลายเซ็นจำลอง */}
-                <div className="pt-6 flex justify-end text-center text-[11px] text-gray-600">
-                  <div>
-                    <div className="border-b border-gray-300 pb-1 mb-1 font-serif italic text-gray-400">
-                      ( ลงนามอนุมัติเรียบร้อยทางอิเล็กทรอนิกส์ )
-                    </div>
-                    <p className="font-bold text-gray-800">{owner?.name ?? project.ownerId}</p>
-                    <p className="text-gray-500">หัวหน้าฝ่ายที่รับผิดชอบโครงการ</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer ของ Modal */}
-            <div className="flex items-center justify-between border-t border-gray-100 px-6 py-3.5 bg-white">
-              <span className="text-[11px] text-gray-400 flex items-center gap-1">
-                <Eye className="size-3.5" /> โหมดแสดงตัวอย่างเอกสาร
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => alert(`จำลองการดาวน์โหลดไฟล์: ${viewingDoc.title}`)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 text-[12px] font-medium text-gray-700 hover:bg-gray-50 transition"
-                >
-                  <Download className="size-3.5" /> ดาวน์โหลด
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewingDoc(null)}
-                  className="inline-flex h-8 items-center justify-center rounded-md bg-[#007F5F] px-4 text-[12px] font-medium text-white hover:bg-[#006a4f] transition"
-                >
-                  ปิดหน้าต่าง
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* POPUP MODAL: ยืนยันเสร็จสิ้นโครงการ */}
-      {/* ========================================================= */}
-      {showCompleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            {/* ไอคอนติ๊กถูกวงกลมสีเขียวด้านบน */}
-            <div className="flex justify-center">
-              <span className="flex size-12 items-center justify-center rounded-full bg-[#D7ECE4] text-[#007F5F]">
-                <Check className="size-6 stroke-[2.5]" />
-              </span>
-            </div>
-
-            {/* หัวข้อ */}
-            <h3 className="mt-4 text-center text-[16px] font-bold text-gray-900">
-              ยืนยันเสร็จสิ้นโครงการ
-            </h3>
-
-            {/* ข้อความอธิบาย */}
-            <p className="mt-2 text-center text-[11px] leading-relaxed text-gray-500">
-              {project.name} ({project.id}) — <br />
-              เมื่อเสร็จสิ้นแล้วจะไม่สามารถยื่นคำขอเบิกใหม่ในโครงการนี้ได้ และงบคงเหลือ{" "}
-              {formatNumber(budget.remaining)} บาท จะคืนเข้าส่วนกลางของแผนก
-            </p>
-
-            {/* กล่องสรุปเงื่อนไขติ๊กถูกสีเขียว */}
-            <div className="mt-4 space-y-2 rounded-xl bg-[#F4F9F6] p-4 text-[11px] text-gray-700">
-              <div className="flex items-center gap-2">
-                <Check className="size-3.5 text-[#007F5F] stroke-[2.5]" />
-                <span>ไม่มีคำขอที่รออนุมัติหรือรอทำจ่าย</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Check className="size-3.5 text-[#007F5F] stroke-[2.5]" />
-                <span>ไม่มีเงินยืมที่ค้างเคลียร์</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Check className="size-3.5 text-[#007F5F] stroke-[2.5]" />
-                <span>
-                  สรุปยอด : งบอนุมัติ {formatNumber(budget.allocated)} • จ่ายจริง{" "}
-                  {formatNumber(budget.used)} • คงเหลือ {formatNumber(budget.remaining)} บาท
-                </span>
-              </div>
-            </div>
-
-            {/* ปุ่ม ยกเลิก / ยืนยันเสร็จสิ้นโครงการ */}
-            <div className="mt-6 flex items-center justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setShowCompleteModal(false)}
-                className="h-8 rounded-md border border-gray-300 bg-white px-4 text-[12px] font-medium text-gray-700 transition hover:bg-gray-50"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmComplete}
-                className="h-8 rounded-md bg-[#007F5F] px-4 text-[12px] font-medium text-white transition hover:bg-[#006a4f]"
-              >
-                ยืนยันเสร็จสิ้นโครงการ
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* POPUP: ยืนยันเสร็จสิ้นโครงการ / เปิดโครงการอีกครั้ง (ฝ่ายบัญชี) */}
+      {isAccountant && user && (
+        <>
+          <CompleteProjectModal
+            open={showCompleteModal}
+            onClose={() => setShowCompleteModal(false)}
+            project={project}
+            budget={budget}
+            blockers={blockers}
+            userId={user.id}
+          />
+          <ReopenProjectModal open={showReopenModal} onClose={() => setShowReopenModal(false)} project={project} userId={user.id} />
+        </>
       )}
     </div>
   );

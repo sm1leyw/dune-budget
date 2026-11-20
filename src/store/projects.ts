@@ -7,13 +7,17 @@
  *   useAdjustments()                  hook → BudgetAdjustment[]
  *   getProjectById(id)                → Project | undefined
  *   getCategoryName(project, catId)   → ชื่อหมวด หรือ "-"
- *   completeProject(id, byUserId)     → เปลี่ยนสถานะเป็น COMPLETED + บันทึกเวลา/ผู้กด
+ *   completeProject(id, input)        → ตรวจเงื่อนไข แล้วเปลี่ยนเป็น COMPLETED + บันทึกหลักฐานลงประวัติ
+ *   reopenProject(id, input)          → เปิดโครงการอีกครั้ง (ต้องมีเหตุผล) + บันทึกลงประวัติ
  *   adjustBudget(input)               → บันทึกการเพิ่ม/ลดงบของหมวด (ADJ-...)
  *   createProject(input)              → สร้างโครงการใหม่ + บันทึกประวัติ (CREATE-...)
  */
 import { createPersistentStore } from "@/lib/createStore";
 import { INITIAL_ADJUSTMENTS, INITIAL_PROJECTS } from "@/data/mock/projects";
-import type { BudgetAdjustment, Project } from "@/types";
+import { getProjectBudget } from "@/lib/budget";
+import { getCompletionBlockers } from "@/lib/projectClosure";
+import { requestsStore } from "@/store/requests";
+import type { Attachment, BudgetAdjustment, Project, ProjectCompletion } from "@/types";
 
 export const projectsStore = createPersistentStore<Project[]>("dune_projects", INITIAL_PROJECTS);
 export const adjustmentsStore = createPersistentStore<BudgetAdjustment[]>("dune_adjustments", INITIAL_ADJUSTMENTS);
@@ -38,14 +42,73 @@ export function getCategoryName(project: Project | undefined, categoryId: string
   return project?.categories.find((c) => c.id === categoryId)?.name ?? "-";
 }
 
-/** เสร็จสิ้นโครงการ (เปลี่ยนสถานะเป็น COMPLETED) พร้อมบันทึกเวลาและผู้กด */
-export function completeProject(id: string, byUserId?: string): void {
-  const current = projectsStore.getState();
-  const completedAt = new Date().toISOString();
-  const next = current.map((p) =>
-    p.id === id ? { ...p, status: "COMPLETED" as const, completedAt, completedBy: byUserId } : p,
+/**
+ * เสร็จสิ้นโครงการ — ตรวจเงื่อนไข (lib/projectClosure) ก่อนเสมอ ถ้าไม่ผ่านจะ throw Error
+ * บันทึกรายการ kind "COMPLETE" ในประวัติ (เก็บไฟล์หลักฐาน + หมายเหตุ) และสรุปยอด ณ วันปิดไว้ที่ project.completion
+ */
+export function completeProject(
+  id: string,
+  input: { byUserId: string; note?: string; attachments: Attachment[] },
+): void {
+  const project = getProjectById(id);
+  if (!project) throw new Error("ไม่พบโครงการ");
+  if (project.status === "COMPLETED") throw new Error("โครงการนี้เสร็จสิ้นไปแล้ว");
+  if (input.attachments.length === 0) throw new Error("กรุณาแนบหลักฐานการปิดโครงการอย่างน้อย 1 ไฟล์");
+  const requests = requestsStore.getState();
+  if (!getCompletionBlockers(id, requests).canComplete) throw new Error("ยังมีคำขอค้างอยู่ในโครงการนี้ จึงเสร็จสิ้นไม่ได้");
+
+  const budget = getProjectBudget(project, requests, adjustmentsStore.getState());
+  const at = new Date().toISOString();
+  const recordId = `CLOSE-${Date.now()}`;
+  const note = input.note?.trim() || undefined;
+  adjustmentsStore.setState([
+    ...adjustmentsStore.getState(),
+    {
+      id: recordId,
+      kind: "COMPLETE",
+      projectId: id,
+      categoryId: "",
+      amount: 0, // ไม่กระทบยอดงบ
+      reason: note ?? "เสร็จสิ้นโครงการ",
+      byUserId: input.byUserId,
+      at,
+      attachments: input.attachments,
+    },
+  ]);
+  const completion: ProjectCompletion = {
+    at,
+    byUserId: input.byUserId,
+    recordId,
+    note,
+    allocated: budget.allocated,
+    used: budget.used,
+    remaining: budget.remaining,
+  };
+  projectsStore.setState(projectsStore.getState().map((p) => (p.id === id ? { ...p, status: "COMPLETED", completion } : p)));
+}
+
+/** เปิดโครงการที่เสร็จสิ้นแล้วกลับมาใช้งาน (ฝ่ายบัญชี) — ต้องมีเหตุผล · บันทึกรายการ kind "REOPEN" ในประวัติ */
+export function reopenProject(id: string, input: { byUserId: string; reason: string }): void {
+  const project = getProjectById(id);
+  if (!project) throw new Error("ไม่พบโครงการ");
+  if (project.status !== "COMPLETED") throw new Error("โครงการนี้ยังไม่ได้เสร็จสิ้น");
+  if (!input.reason.trim()) throw new Error("กรุณาระบุเหตุผลการเปิดโครงการอีกครั้ง");
+  adjustmentsStore.setState([
+    ...adjustmentsStore.getState(),
+    {
+      id: `REOPEN-${Date.now()}`,
+      kind: "REOPEN",
+      projectId: id,
+      categoryId: "",
+      amount: 0,
+      reason: input.reason.trim(),
+      byUserId: input.byUserId,
+      at: new Date().toISOString(),
+    },
+  ]);
+  projectsStore.setState(
+    projectsStore.getState().map((p) => (p.id === id ? { ...p, status: "ACTIVE", completion: undefined } : p)),
   );
-  projectsStore.setState(next);
 }
 
 /** บันทึกการเพิ่ม/ลดงบของหมวดในโครงการ */
@@ -53,6 +116,7 @@ export function adjustBudget(input: Omit<BudgetAdjustment, "id" | "at">): void {
   const adjustment: BudgetAdjustment = {
     ...input,
     id: `ADJ-${Date.now()}`,
+    kind: "ADJUST",
     at: new Date().toISOString(),
   };
   adjustmentsStore.setState([...adjustmentsStore.getState(), adjustment]);
@@ -77,6 +141,7 @@ export function createProject(input: Omit<Project, "id" | "status">): Project {
   // ใช้ amount = 0 เพื่อไม่ให้กระทบยอดคำนวณงบประมาณ
   const creationRecord: BudgetAdjustment = {
     id: `CREATE-${Date.now()}`,
+    kind: "CREATE",
     projectId: project.id,
     categoryId: "",
     amount: 0,
@@ -88,4 +153,4 @@ export function createProject(input: Omit<Project, "id" | "status">): Project {
   adjustmentsStore.setState([...adjustmentsStore.getState(), creationRecord]);
 
   return project;
-}
+}
