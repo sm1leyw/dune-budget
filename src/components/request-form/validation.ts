@@ -23,6 +23,8 @@ export interface ValidationContext {
   advance?: ReimburseRequest;
   /** มีใบยืมให้เลือกเคลียร์ไหม (ตาราง B) */
   hasEligibleAdvance: boolean;
+  /** ตาราง B: งบคงเหลือของหมวดของใบยืม (ยอดที่บริษัทจ่ายเพิ่มได้ไม่เกินนี้) */
+  clearanceExtraLimit?: number;
 }
 
 function validateType(values: RequestFormValues, ctx: ValidationContext): FormErrors {
@@ -50,7 +52,17 @@ function validateDetails(values: RequestFormValues, ctx: ValidationContext): For
   } else {
     if (!values.advanceRefId || !ctx.advance) e.advanceRefId = "กรุณาเลือกใบคำขอเบิกเดิม";
     if (Number.isNaN(amount) || amount <= 0) e.amount = "กรุณากรอกยอดใช้จ่ายจริงเป็นตัวเลขมากกว่า 0";
-    if (!values.refundMethod) e.refundMethod = "กรุณาเลือกวิธีการคืนเงิน";
+    else if (ctx.advance) {
+      const extra = amount - ctx.advance.totalAmount;
+      if (extra > 0 && ctx.clearanceExtraLimit !== undefined && extra > ctx.clearanceExtraLimit) {
+        e.amount = `ใช้เกินยอดยืม ${formatBaht(extra)} แต่งบคงเหลือของหมวดนี้มีแค่ ${formatBaht(Math.max(0, ctx.clearanceExtraLimit))}`;
+      }
+      // ต้องเลือกวิธีคืนเงินเฉพาะตอนที่มีเงินต้องคืน (ใช้น้อยกว่ายอดยืม)
+      if (amount < ctx.advance.totalAmount && !values.refundMethod) e.refundMethod = "กรุณาเลือกวิธีการคืนเงิน";
+      // คืนแบบโอน → พนักงานต้องแนบสลิปโอนคืนเอง (บัญชีแค่ตรวจแล้วยืนยันรับเงิน)
+      if (amount < ctx.advance.totalAmount && values.refundMethod === "TRANSFER" && !values.refundSlip)
+        e.refundSlip = "กรุณาแนบสลิปการโอนคืนเงิน";
+    }
     if (!values.purpose.trim()) e.purpose = "กรุณากรอกหมายเหตุ / คำอธิบายการคืนเงิน";
   }
   return e;

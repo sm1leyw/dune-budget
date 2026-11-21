@@ -20,6 +20,8 @@ import { EXECUTIVE_THRESHOLD } from "@/constants/approval";
 import { cn } from "@/lib/cn";
 import { formatNumber, formatThaiDate } from "@/lib/format";
 import { getApproverRole, getInitialStatus, getStatusAfterApprove } from "@/lib/workflow";
+import { getRoutingAmount, getSettlement } from "@/lib/clearance";
+import { getRequestById } from "@/store/requests";
 import { getUserById, USERS } from "@/store/session";
 import type { ReimburseRequest, RequestEvent, UserRole } from "@/types";
 
@@ -45,7 +47,8 @@ const STAGE_LABEL: Record<UserRole, string> = {
 function getRequiredStages(request: ReimburseRequest): UserRole[] {
   const requesterRole = getUserById(request.requesterId)?.role ?? "EMPLOYEE";
   const stages: UserRole[] = [];
-  let status = getInitialStatus(requesterRole, request.totalAmount);
+  // คำขอคืนเงินใช้ยอดที่บริษัทต้องจ่ายเพิ่มตัดสินสายอนุมัติ (lib/clearance.ts)
+  let status = getInitialStatus(requesterRole, getRoutingAmount(request, getRequestById));
   for (let i = 0; i < 5; i++) {
     const role = getApproverRole(status);
     if (!role) break;
@@ -83,11 +86,17 @@ export function getTimelineSteps(request: ReimburseRequest): TimelineStep[] {
   const sendBack = [...round].reverse().find((e) => e.action === "SEND_BACK");
   const stopped = request.status === "SENT_BACK" || request.status === "CANCELLED";
   const currentRole = getApproverRole(request.status);
+  // ชื่อขั้นของบัญชีตามสิ่งที่ต้องทำ (คำขอคืนเงิน: รับเงินคืน / จ่ายส่วนต่าง / เคลียร์)
+  const kind = request.type === "CLEARANCE" ? getSettlement(request, getRequestById).kind : undefined;
+  const accountantLabel =
+    kind === "REFUND" ? "บัญชีตรวจสอบและรับเงินคืน" : kind === "EXTRA" ? "บัญชีตรวจสอบและจ่ายส่วนต่าง" : kind === "EXACT" ? "บัญชีตรวจสอบและเคลียร์เงินยืม" : STAGE_LABEL.ACCOUNTANT;
+  const payVerb = kind === "REFUND" ? "รับเงินคืนโดย" : kind === "EXACT" ? "เคลียร์โดย" : "ทำจ่ายโดย";
+  const labelOf = (role: UserRole) => (role === "ACCOUNTANT" ? accountantLabel : STAGE_LABEL[role]);
 
   const steps: TimelineStep[] = [
     {
       key: "submit",
-      label: STAGE_LABEL.EMPLOYEE,
+      label: request.type === "CLEARANCE" ? "ผู้ยื่นคืนเงิน" : STAGE_LABEL.EMPLOYEE,
       state: "done",
       caption: `โดย : ${nameOf(submit?.byUserId ?? request.requesterId)} · ${formatThaiDate(submit?.at ?? request.createdAt)}`,
     },
@@ -102,14 +111,14 @@ export function getTimelineSteps(request: ReimburseRequest): TimelineStep[] {
     const waitText = role === "ACCOUNTANT" ? "รอผู้อนุมัติครบก่อน" : `รอ${previous ? STAGE_LABEL[previous] : "ขั้นตอนก่อนหน้า"}ก่อน`;
 
     if (done) {
-      steps.push({ key: role, role, label: STAGE_LABEL[role], state: "done", caption: `${done.action === "PAY" ? "ทำจ่ายโดย" : "อนุมัติโดย"} : ${nameOf(done.byUserId)}` });
+      steps.push({ key: role, role, label: labelOf(role), state: "done", caption: `${done.action === "PAY" ? payVerb : "อนุมัติโดย"} : ${nameOf(done.byUserId)}` });
     } else if (stopped && !stopMarked) {
       stopMarked = true;
-      steps.push({ key: role, role, label: STAGE_LABEL[role], state: "sentBack", caption: `ส่งกลับแก้ไขโดย : ${nameOf(sendBack?.byUserId)}` });
+      steps.push({ key: role, role, label: labelOf(role), state: "sentBack", caption: `ส่งกลับแก้ไขโดย : ${nameOf(sendBack?.byUserId)}` });
     } else if (!stopped && role === currentRole) {
-      steps.push({ key: role, role, label: STAGE_LABEL[role], state: "current", caption: `รอ ${getApproverName(role, request)} พิจารณา` });
+      steps.push({ key: role, role, label: labelOf(role), state: "current", caption: `รอ ${getApproverName(role, request)} พิจารณา` });
     } else {
-      steps.push({ key: role, role, label: STAGE_LABEL[role], state: "pending", caption: waitText });
+      steps.push({ key: role, role, label: labelOf(role), state: "pending", caption: waitText });
     }
     previous = role;
   }
@@ -170,7 +179,9 @@ export function ApprovalTimeline({ request }: { request: ReimburseRequest }) {
         ))}
       </ol>
       <p className="mt-6 text-badge text-text-muted">
-        คำขอยอดเกิน {formatNumber(EXECUTIVE_THRESHOLD)} บาท ต้องผ่านการอนุมัติจากผู้บริหาร
+        {request.type === "CLEARANCE"
+          ? "คำขอคืนเงินใช้ยอดที่บริษัทต้องจ่ายเพิ่มตัดสินสายอนุมัติ · คืนเงินหรือใช้พอดีส่งให้บัญชีตรวจโดยตรง"
+          : `คำขอยอดเกิน ${formatNumber(EXECUTIVE_THRESHOLD)} บาท ต้องผ่านการอนุมัติจากผู้บริหาร`}
       </p>
     </Card>
   );

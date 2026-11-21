@@ -11,6 +11,7 @@
  *   categoryRemaining  งบคงเหลือของหมวดที่เลือก | undefined
  *   eligibleAdvances   ใบยืม (ตาราง A) ของผู้ใช้ที่ "จ่ายแล้ว" และยังไม่มีใบคืนเงินที่ยังไม่ยกเลิก
  *   advance            ใบยืมที่เลือก (ตาราง B) | undefined
+ *   clearanceExtraLimit งบคงเหลือของหมวดของใบยืม — ยอดที่บริษัทจ่ายเพิ่มต้องไม่เกินนี้ (ตาราง B)
  *   validationContext  ส่งให้ validateStep() ได้เลย
  */
 import { useMemo } from "react";
@@ -52,14 +53,18 @@ export function useFormData(values: RequestFormValues, user: User, editingId?: s
       .filter((r) => r.requesterId === user.id && r.type === "ADVANCE" && r.status === "COMPLETED" && !clearedIds.has(r.id))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const advance = eligibleAdvances.find((r) => r.id === values.advanceRefId);
+    const advanceProject = advance ? projects.find((p) => p.id === advance.projectId) : undefined;
+    const clearanceExtraLimit =
+      advance && advanceProject ? getCategoryBudget(advanceProject, advance.categoryId, others, adjustments).remaining : undefined;
 
     const validationContext: ValidationContext = {
       categoryRemaining,
       advance,
       hasEligibleAdvance: eligibleAdvances.length > 0,
+      clearanceExtraLimit,
     };
 
-    return { projectOptions, categoryOptions, project, categoryRemaining, eligibleAdvances, advance, validationContext };
+    return { projectOptions, categoryOptions, project, categoryRemaining, eligibleAdvances, advance, clearanceExtraLimit, validationContext };
   }, [projects, adjustments, requests, editingId, user.id, values.projectId, values.categoryId, values.advanceRefId]);
 }
 

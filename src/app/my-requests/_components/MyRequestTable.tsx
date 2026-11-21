@@ -5,7 +5,8 @@
  */
 import { ButtonLink, StatusBadge, Table, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui";
 import { PATHS } from "@/config/routes";
-import { formatNumber, formatThaiDate } from "@/lib/format";
+import { RequestAmount } from "@/components/requests/RequestAmount";
+import { formatThaiDate } from "@/lib/format";
 import { getCategoryName, useProjects } from "@/store/projects";
 import type { ReimburseRequest } from "@/types";
 
@@ -39,7 +40,7 @@ export function MyRequestTable({ requests, emptyText }: { requests: ReimburseReq
               </TD>
               <TD className="whitespace-nowrap">{formatThaiDate(r.createdAt)}</TD>
               <TD align="right" className="whitespace-nowrap font-medium">
-                {formatNumber(r.totalAmount)}
+                <RequestAmount request={r} />
               </TD>
               <TD align="center">
                 <StatusBadge status={r.status} />

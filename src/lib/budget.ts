@@ -7,11 +7,16 @@
  *
  * นิยาม:
  *   allocated = งบตั้งต้นของหมวด + ผลรวมการปรับงบของหมวด
- *   used      = ผลรวมคำขอที่ "จ่ายแล้ว"
- *   reserved  = ผลรวมคำขอที่ "อยู่ระหว่างพิจารณา" (กันวงเงินไว้)
+ *   used      = เงินที่ออกจากงบจริง:
+ *                 ใบยืม (ตาราง A) ที่จ่ายแล้ว → นับยอดยืม
+ *                 แต่ถ้าใบยืมนั้นถูกเคลียร์เสร็จแล้ว → นับ "ยอดใช้จริง" ของใบคืนเงินแทน
+ *                 (ยอดที่พนักงานคืน กลับเป็นงบคงเหลือ · ยอดที่บริษัทจ่ายเพิ่ม ถูกนับรวมในยอดใช้จริง)
+ *   reserved  = เงินที่กันไว้: ใบยืมที่อยู่ระหว่างพิจารณา + ส่วนที่บริษัทต้องจ่ายเพิ่มของใบคืนเงินที่ยังไม่เสร็จ
  *   remaining = allocated - used - reserved
+ * คำขอคืนเงินไม่ถูกนับซ้ำกับใบยืม (ดูกติกาใน lib/clearance.ts)
  */
 import { IN_PROGRESS_STATUSES } from "@/constants/status";
+import { getSettlement } from "@/lib/clearance";
 import type { BudgetAdjustment, Project, ReimburseRequest } from "@/types";
 
 export interface BudgetSummary {
@@ -21,8 +26,25 @@ export interface BudgetSummary {
   remaining: number;
 }
 
-function sumRequests(requests: ReimburseRequest[], pick: (r: ReimburseRequest) => boolean): number {
-  return requests.filter(pick).reduce((sum, r) => sum + r.totalAmount, 0);
+/** ยอดใช้จริงและยอดกันไว้ของชุดคำขอในหมวดเดียว (กติกาตามหัวไฟล์) */
+function sumUsage(requests: ReimburseRequest[]): { used: number; reserved: number } {
+  const byId = new Map(requests.map((r) => [r.id, r]));
+  const settledByAdvance = new Map(
+    requests
+      .filter((r) => r.type === "CLEARANCE" && r.status === "COMPLETED" && r.advanceRefId)
+      .map((r) => [r.advanceRefId as string, r]),
+  );
+  let used = 0;
+  let reserved = 0;
+  for (const r of requests) {
+    if (r.type === "ADVANCE") {
+      if (r.status === "COMPLETED") used += settledByAdvance.get(r.id)?.totalAmount ?? r.totalAmount;
+      else if (IN_PROGRESS_STATUSES.includes(r.status)) reserved += r.totalAmount;
+    } else if (IN_PROGRESS_STATUSES.includes(r.status)) {
+      reserved += getSettlement(r, (id) => byId.get(id)).extra;
+    }
+  }
+  return { used, reserved };
 }
 
 /**
@@ -45,8 +67,7 @@ export function getCategoryBudget(
   const inCategory = requests.filter((r) => r.projectId === project.id && r.categoryId === categoryId);
 
   const allocated = base + adjusted;
-  const used = sumRequests(inCategory, (r) => r.status === "COMPLETED");
-  const reserved = sumRequests(inCategory, (r) => IN_PROGRESS_STATUSES.includes(r.status));
+  const { used, reserved } = sumUsage(inCategory);
   return { allocated, used, reserved, remaining: allocated - used - reserved };
 }
 

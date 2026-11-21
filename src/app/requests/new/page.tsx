@@ -17,7 +17,8 @@ export default function NewRequestPage() {
   const router = useRouter();
   // คำนวณครั้งเดียวตอนเปิดหน้า (ไม่เปลี่ยนระหว่างกรอก)
   const [today] = useState(todayISO);
-  const [previewId] = useState(() => nextRequestId());
+  // รหัสตัวอย่างในขั้นที่ 4 ตามประเภท (คำขอเบิก REQ · คำขอคืนเงิน RFD)
+  const [previewIds] = useState(() => ({ ADVANCE: nextRequestId("ADVANCE"), CLEARANCE: nextRequestId("CLEARANCE") }));
   if (!user) return null;
 
   return (
@@ -25,7 +26,7 @@ export default function NewRequestPage() {
       user={user}
       today={today}
       initial={emptyForm(today)}
-      requestId={previewId}
+      requestId={(type) => previewIds[type]}
       onSubmit={(input) => createRequest(input, user).id}
       onSubmitted={(id) => router.push(PATHS.requestDetail(id))}
     />

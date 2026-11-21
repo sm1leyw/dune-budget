@@ -15,10 +15,11 @@ import { RequestTable } from "@/components/requests/RequestTable";
 import { PATHS } from "@/config/routes";
 import { IN_PROGRESS_STATUSES } from "@/constants/status";
 import { getProjectBudget } from "@/lib/budget";
+import { getSettlement } from "@/lib/clearance";
 import { formatNumber } from "@/lib/format";
 import { isMyTurn } from "@/lib/workflow";
 import { useAdjustments, useProjects } from "@/store/projects";
-import { useRequests } from "@/store/requests";
+import { getRequestById, useRequests } from "@/store/requests";
 import { useCurrentUser } from "@/store/session";
 import type { ReimburseRequest, User } from "@/types";
 
@@ -51,7 +52,14 @@ function useMyStats(user: User, requests: ReimburseRequest[]) {
       mine,
       inProgress: mine.filter((r) => IN_PROGRESS_STATUSES.includes(r.status)).length,
       sentBack: mine.filter((r) => r.status === "SENT_BACK").length,
-      paidAmount: mine.filter((r) => r.status === "COMPLETED").reduce((s, r) => s + r.totalAmount, 0),
+      // เงินที่ได้รับสุทธิ: ใบยืมที่จ่ายแล้ว + ส่วนต่างที่บริษัทจ่ายเพิ่ม − เงินที่คืนบริษัท (คำขอคืนเงินที่เสร็จแล้ว)
+      paidAmount: mine
+        .filter((r) => r.status === "COMPLETED")
+        .reduce((sum, r) => {
+          if (r.type === "ADVANCE") return sum + r.totalAmount;
+          const s = getSettlement(r, getRequestById);
+          return sum + s.extra - s.refund;
+        }, 0),
     };
   }, [requests, user.id]);
 }
@@ -64,7 +72,7 @@ function EmployeeDashboard({ user, requests }: { user: User; requests: Reimburse
         <StatCard label="คำขอทั้งหมด" value={mine.length} unit="รายการ" />
         <StatCard label="กำลังดำเนินการ" value={inProgress} unit="รายการ" />
         <StatCard label="ส่งกลับแก้ไข" value={sentBack} unit="รายการ" highlight={sentBack > 0} hint={sentBack > 0 ? "แก้ไขแล้วยื่นใหม่ได้" : undefined} />
-        <StatCard label="ได้รับเงินแล้ว" value={formatNumber(paidAmount)} unit="บาท" />
+        <StatCard label="ได้รับเงินแล้ว (สุทธิ)" value={formatNumber(paidAmount)} unit="บาท" hint="หักเงินที่คืนบริษัทแล้ว" />
       </div>
       <Card
         title="คำขอล่าสุด"

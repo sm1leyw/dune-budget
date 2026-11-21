@@ -3,21 +3,23 @@
  * /approvals — รออนุมัติ / ประวัติการอนุมัติ · เจ้าของ: คนที่ 4 · เข้าได้: หัวหน้าแผนก, ผู้บริหาร, บัญชี
  * -----------------------------------------------------------------------------
  * - <Tabs>: "รออนุมัติ (n)" = คำขอที่ isMyTurn(req, user) · "ประวัติ" = คำขอที่ผู้ใช้เคยอนุมัติ/ทำจ่าย/ส่งกลับ
- *   (บัญชีใช้ชื่อแท็บ "รอทำจ่าย" / "ประวัติการทำจ่าย")
+ *   บัญชี (ตาม Figma): "รอเบิกจ่าย" = คำขอเบิก · "รอคืนเงิน" = คำขอคืนเงิน · "ประวัติ"
+ * - คอลัมน์จำนวนเงิน: คำขอคืนเงินแสดงยอดส่วนต่าง (คืน / จ่ายเพิ่ม / ใช้พอดี) ด้วย <RequestAmount>
  * - <FilterBar>: ค้นหาเลขที่/ชื่อโครงการ/ชื่อผู้ขอ · กรองโครงการ · ช่วงวันที่ยื่น
  * - แถวตาราง: ปุ่ม "ตรวจสอบ" → /approvals/[id]
  */
 import { useMemo, useState } from "react";
 import { ButtonLink, Card, FilterBar, StatusBadge, Table, TableEmpty, Tabs, TBody, TD, TH, THead, TR } from "@/components/ui";
 import { PATHS } from "@/config/routes";
-import { formatNumber, formatThaiDate } from "@/lib/format";
+import { RequestAmount } from "@/components/requests/RequestAmount";
+import { formatThaiDate } from "@/lib/format";
 import { isMyTurn } from "@/lib/workflow";
 import { getCategoryName, useProjects } from "@/store/projects";
 import { useRequests } from "@/store/requests";
 import { getUserById, useCurrentUser } from "@/store/session";
 import type { ReimburseRequest, User } from "@/types";
 
-type TabKey = "pending" | "history";
+type TabKey = "pending" | "refund" | "history";
 
 /** การกระทำที่นับเป็น "ผู้ใช้คนนี้พิจารณาแล้ว" */
 const REVIEW_ACTIONS = new Set(["APPROVE", "PAY", "SEND_BACK"]);
@@ -57,7 +59,11 @@ export default function ApprovalsPage() {
       });
   }, [requests, projects, search, projectId, dateFrom, dateTo]);
 
-  const pending = useMemo(() => (user ? filtered.filter((r) => isMyTurn(r, user)).sort(newestFirst) : []), [filtered, user]);
+  const isAccountant = user?.role === "ACCOUNTANT";
+  const myTurn = useMemo(() => (user ? filtered.filter((r) => isMyTurn(r, user)).sort(newestFirst) : []), [filtered, user]);
+  // บัญชีแยกคำขอเบิก (รอเบิกจ่าย) กับคำขอคืนเงิน (รอคืนเงิน) ตาม Figma · role อื่นรวมในแท็บเดียว
+  const pending = useMemo(() => (isAccountant ? myTurn.filter((r) => r.type === "ADVANCE") : myTurn), [myTurn, isAccountant]);
+  const refunds = useMemo(() => (isAccountant ? myTurn.filter((r) => r.type === "CLEARANCE") : []), [myTurn, isAccountant]);
 
   const history = useMemo(() => {
     if (!user) return [];
@@ -68,12 +74,12 @@ export default function ApprovalsPage() {
 
   if (!user) return null;
 
-  const isAccountant = user.role === "ACCOUNTANT";
   const labels: Record<TabKey, string> = {
-    pending: isAccountant ? "รอทำจ่าย" : "รออนุมัติ",
-    history: isAccountant ? "ประวัติการทำจ่าย" : "ประวัติการพิจารณา",
+    pending: isAccountant ? "รอเบิกจ่าย" : "รออนุมัติ",
+    refund: "รอคืนเงิน",
+    history: isAccountant ? "ประวัติ" : "ประวัติการพิจารณา",
   };
-  const rows = tab === "pending" ? pending : history;
+  const rows = tab === "pending" ? pending : tab === "refund" ? refunds : history;
   const hasFilter = !!(search || projectId || dateFrom || dateTo);
 
   return (
@@ -83,6 +89,7 @@ export default function ApprovalsPage() {
         onChange={setTab}
         tabs={[
           { value: "pending", label: labels.pending, count: pending.length },
+          ...(isAccountant ? [{ value: "refund" as const, label: labels.refund, count: refunds.length }] : []),
           { value: "history", label: labels.history, count: history.length },
         ]}
       />
@@ -133,7 +140,7 @@ export default function ApprovalsPage() {
             <TBody>
               {rows.length === 0 && (
                 <TableEmpty colSpan={7}>
-                  {hasFilter ? "ไม่พบคำขอที่ตรงกับตัวกรอง" : tab === "pending" ? `ไม่มีรายการ${labels.pending}` : "ยังไม่มีประวัติการพิจารณา"}
+                  {hasFilter ? "ไม่พบคำขอที่ตรงกับตัวกรอง" : tab === "history" ? "ยังไม่มีประวัติการพิจารณา" : `ไม่มีรายการ${labels[tab]}`}
                 </TableEmpty>
               )}
               {rows.map((r) => {
@@ -152,13 +159,13 @@ export default function ApprovalsPage() {
                     </TD>
                     <TD className="whitespace-nowrap">{formatThaiDate(r.createdAt)}</TD>
                     <TD align="right" className="whitespace-nowrap font-medium">
-                      {formatNumber(r.totalAmount)}
+                      <RequestAmount request={r} />
                     </TD>
                     <TD align="center">
                       <StatusBadge status={r.status} myTurn={isMyTurn(r, user)} />
                     </TD>
                     <TD align="right">
-                      <ButtonLink href={PATHS.approvalDetail(r.id)} size="S" variant={tab === "pending" ? "primary" : "secondary"}>
+                      <ButtonLink href={PATHS.approvalDetail(r.id)} size="S" variant={tab === "history" ? "secondary" : "primary"}>
                         ตรวจสอบ
                       </ButtonLink>
                     </TD>

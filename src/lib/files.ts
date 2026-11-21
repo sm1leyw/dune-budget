@@ -88,6 +88,7 @@ const MOCK_FILES: Map<string, string> = (() => {
   for (const r of INITIAL_REQUESTS) {
     for (const i of r.items) if (i.fileName && i.fileData) map.set(i.fileName, i.fileData);
     if (r.paymentInfo?.fileData) map.set(r.paymentInfo.fileName, r.paymentInfo.fileData);
+    if (r.refundSlip?.data) map.set(r.refundSlip.name, r.refundSlip.data);
   }
   for (const p of INITIAL_PROJECTS) for (const a of p.attachments ?? []) if (a.data) map.set(a.name, a.data);
   return map;

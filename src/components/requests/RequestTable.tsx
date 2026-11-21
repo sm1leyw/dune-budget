@@ -16,11 +16,12 @@
  */
 import { ButtonLink, StatusBadge, Table, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui";
 import { PATHS } from "@/config/routes";
-import { formatBaht, formatThaiDate } from "@/lib/format";
+import { formatThaiDate } from "@/lib/format";
 import { isMyTurn } from "@/lib/workflow";
 import { getProjectById } from "@/store/projects";
 import { getUserById } from "@/store/session";
 import type { ReimburseRequest, User } from "@/types";
+import { RequestAmount } from "./RequestAmount";
 
 export function RequestTable({
   requests,
@@ -65,7 +66,7 @@ export function RequestTable({
               <p className="truncate text-caption text-text-muted">{r.purpose}</p>
             </TD>
             <TD align="right" className="whitespace-nowrap font-medium">
-              {formatBaht(r.totalAmount)}
+              <RequestAmount request={r} />
             </TD>
             <TD align="center">
               <StatusBadge status={r.status} myTurn={isMyTurn(r, user)} />

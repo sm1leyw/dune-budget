@@ -146,7 +146,7 @@ export const INITIAL_REQUESTS: ReimburseRequest[] = [
     ],
   },
   {
-    id: "REQ-2026-0008",
+    id: "RFD-2026-0001",
     type: "CLEARANCE",
     projectId: "DUNE-001",
     categoryId: "DUNE-001-C1",
@@ -157,6 +157,9 @@ export const INITIAL_REQUESTS: ReimburseRequest[] = [
     items: [{ id: "item-9", name: "ค่าทางด่วนและที่จอดรถ", amount: 1_800, date: "2026-10-25", fileName: "toll-receipt.jpg", fileData: "/mock-files/toll-receipt.jpg" }],
     totalAmount: 1_800,
     advanceRefId: "REQ-2026-0005",
+    advanceAmount: 2_000,
+    refundMethod: "TRANSFER",
+    refundSlip: { name: "refund-slip.pdf", data: "/mock-files/refund-slip.pdf" },
     status: "WAITING_ACCOUNTANT",
     createdAt: at("2026-11-06"),
     updatedAt: at("2026-11-06"),

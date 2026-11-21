@@ -23,6 +23,7 @@ import { useAdjustments, useProjects } from "@/store/projects";
 import { useRequests } from "@/store/requests";
 import { getUserById, useCurrentUser } from "@/store/session";
 import { CompleteProjectModal, ReopenProjectModal } from "./_components/ProjectClosureModals";
+import { RequestAmount } from "@/components/requests/RequestAmount";
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -338,7 +339,7 @@ export default function ProjectDetailPage() {
                       <td className="py-3.5 pr-4 text-gray-700">{formatThaiDateLong(req.createdAt)}</td>
                       <td className="py-3.5 px-3 text-center text-gray-700">{cat?.name ?? "-"}</td>
                       <td className="py-3.5 px-3 text-center text-gray-700">
-                        {formatNumber(req.totalAmount)} ฿
+                        <RequestAmount request={req} className="items-center" /> ฿
                       </td>
                       <td className="py-3.5 px-3 text-center text-gray-700">{requester?.name ?? "-"}</td>
                       <td className="py-3.5 pl-3 text-center">

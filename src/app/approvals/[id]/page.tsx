@@ -6,7 +6,11 @@
  * - การ์ด "งบประมาณหมวดนี้" แสดงงบจัดสรร/ใช้แล้ว/จองไว้/คงเหลือ และเตือนเมื่อหมวดติดลบ (เกินงบ)
  * - ถ้า isMyTurn:
  *     หัวหน้า/ผู้บริหาร → ปุ่ม "ส่งกลับแก้ไข" (danger) · "อนุมัติ" (primary)
- *     บัญชี            → ฟอร์มข้อมูลการทำจ่าย (วิธีจ่าย · เลขอ้างอิง · ยอด · วันที่ · ไฟล์หลักฐาน) + "ยืนยันทำจ่าย"
+ *     บัญชี            → ฟอร์มบันทึกการเงิน (วิธี · เลขอ้างอิง · ยอด · วันที่ · ไฟล์หลักฐาน) ตามประเภทคำขอ:
+ *                         คำขอเบิก                     → "ข้อมูลการทำจ่าย" + "ยืนยันทำจ่าย"
+ *                         คำขอคืนเงิน ที่มียอดต้องคืน    → ไม่มีฟอร์ม · ตรวจสลิปโอนคืนที่พนักงานแนบ (หรือรับเงินสด) แล้ว "ยืนยันรับเงินคืน"
+ *                         คำขอคืนเงิน ที่ใช้เกินยอดยืม   → "ข้อมูลการจ่ายส่วนต่าง" + "ยืนยันจ่ายส่วนต่าง" (ยอดต้องตรงส่วนต่าง)
+ *                         คำขอคืนเงิน ที่ใช้พอดี         → ไม่มีฟอร์ม · "ยืนยันเคลียร์เงินยืม"
  *   ส่งกลับแก้ไข → <Modal> + <Textarea> หมายเหตุ (บังคับ) → sendBackRequest(id, user, note)
  *   อนุมัติ/ทำจ่าย → <ConfirmModal> → approveRequest(id, user, paymentInfo?)
  * - ไม่ใช่ตาของผู้ใช้ → แสดงอย่างเดียว มีแค่ปุ่มกลับ
@@ -34,9 +38,11 @@ import { getCategoryBudget } from "@/lib/budget";
 import { cn } from "@/lib/cn";
 import { formatBaht, formatNumber } from "@/lib/format";
 import { isMyTurn } from "@/lib/workflow";
+import { getSettlement } from "@/lib/clearance";
+import { REFUND_METHOD_LABEL } from "@/constants/request";
 import { approveRequest, sendBackRequest } from "@/store/approvals";
 import { getCategoryName, useAdjustments, useProjects } from "@/store/projects";
-import { useRequest, useRequests } from "@/store/requests";
+import { getRequestById, useRequest, useRequests } from "@/store/requests";
 import { useCurrentUser } from "@/store/session";
 import { ACCEPT_ATTR, MAX_FILE_MB, prepareAttachment } from "@/lib/files";
 import type { Attachment, PaymentInfo, ReimburseRequest, User } from "@/types";
@@ -45,6 +51,16 @@ const PAYMENT_METHOD_OPTIONS = (Object.keys(PAYMENT_METHOD_LABEL) as PaymentInfo
   value,
   label: PAYMENT_METHOD_LABEL[value],
 }));
+
+/** สิ่งที่บัญชีต้องทำกับคำขอนี้ */
+type AccountantMode = "PAY" | "RECEIVE" | "PAY_EXTRA" | "CONFIRM";
+
+const MODE_TEXT: Record<AccountantMode, { card: string; hint: string; button: string; amount: string; date: string; file: string; done: string }> = {
+  PAY: { card: "ข้อมูลการทำจ่าย", hint: "บันทึกหลักฐานการโอน/จ่ายเงินจริง (การโอนเงินทำนอกระบบ)", button: "ยืนยันทำจ่าย", amount: "ยอดที่จ่าย (บาท)", date: "วันที่จ่าย", file: "ไฟล์หลักฐานการทำจ่าย", done: "จ่ายแล้ว" },
+  RECEIVE: { card: "ตรวจสอบการคืนเงิน", hint: "", button: "ยืนยันรับเงินคืน", amount: "", date: "", file: "", done: "เคลียร์แล้ว" },
+  PAY_EXTRA: { card: "ข้อมูลการจ่ายส่วนต่าง", hint: "พนักงานใช้จ่ายเกินยอดที่ยืม บริษัทโอนส่วนต่างให้", button: "ยืนยันจ่ายส่วนต่าง", amount: "ยอดส่วนต่างที่จ่าย (บาท)", date: "วันที่จ่าย", file: "ไฟล์หลักฐานการจ่ายส่วนต่าง", done: "เคลียร์แล้ว" },
+  CONFIRM: { card: "", hint: "", button: "ยืนยันเคลียร์เงินยืม", amount: "", date: "", file: "", done: "เคลียร์แล้ว" },
+};
 
 function todayLocalISO(): string {
   const d = new Date();
@@ -82,6 +98,19 @@ function ApprovalDetail({ request, user }: { request: ReimburseRequest; user: Us
   const router = useRouter();
   const myTurn = isMyTurn(request, user);
   const isAccountant = user.role === "ACCOUNTANT";
+  const settlement = request.type === "CLEARANCE" ? getSettlement(request, getRequestById) : undefined;
+  const mode: AccountantMode = !settlement
+    ? "PAY"
+    : settlement.kind === "REFUND"
+      ? "RECEIVE"
+      : settlement.kind === "EXTRA"
+        ? "PAY_EXTRA"
+        : "CONFIRM";
+  const text = MODE_TEXT[mode];
+  /** ยอดที่ต้องบันทึก: คำขอเบิก = ไม่เกินยอดขอเบิก · คืนเงิน = ต้องตรงยอดคืน/ส่วนต่างพอดี */
+  const expected = mode === "RECEIVE" ? settlement!.refund : mode === "PAY_EXTRA" ? settlement!.extra : request.totalAmount;
+  // บัญชีแนบหลักฐานเฉพาะตอนที่บริษัทจ่ายเงินออก (คำขอเบิก / จ่ายส่วนต่าง) · รับเงินคืน = พนักงานแนบสลิปมาแล้ว
+  const needsMoneyForm = isAccountant && (mode === "PAY" || mode === "PAY_EXTRA");
 
   // ส่งกลับแก้ไข
   const [sendBackOpen, setSendBackOpen] = useState(false);
@@ -97,7 +126,7 @@ function ApprovalDetail({ request, user }: { request: ReimburseRequest; user: Us
   // ฟอร์มทำจ่าย (บัญชี)
   const [method, setMethod] = useState<PaymentInfo["method"]>("TRANSFER");
   const [refNumber, setRefNumber] = useState("");
-  const [amount, setAmount] = useState(String(request.totalAmount));
+  const [amount, setAmount] = useState(String(expected));
   const [payDate, setPayDate] = useState(todayLocalISO);
   const [payFile, setPayFile] = useState<Attachment | null>(null);
   const [readingFile, setReadingFile] = useState(false);
@@ -106,17 +135,19 @@ function ApprovalDetail({ request, user }: { request: ReimburseRequest; user: Us
   function validatePayment(): boolean {
     const errors: typeof payErrors = {};
     const value = Number(amount);
-    if (!amount.trim() || !Number.isFinite(value) || value <= 0) errors.amount = "กรุณาระบุยอดที่จ่ายมากกว่า 0";
-    else if (value > request.totalAmount) errors.amount = `ยอดที่จ่ายต้องไม่เกินยอดขอเบิก (${formatBaht(request.totalAmount)})`;
-    if (!payDate) errors.date = "กรุณาเลือกวันที่จ่าย";
-    if (!payFile) errors.file = payErrors.file ?? "กรุณาแนบไฟล์หลักฐานการทำจ่าย";
+    if (!amount.trim() || !Number.isFinite(value) || value <= 0) errors.amount = "กรุณาระบุยอดเงินมากกว่า 0";
+    else if (mode === "PAY" && value > expected) errors.amount = `ยอดที่จ่ายต้องไม่เกินยอดขอเบิก (${formatBaht(expected)})`;
+    else if (mode !== "PAY" && Math.abs(value - expected) > 0.001)
+      errors.amount = `${mode === "RECEIVE" ? "ยอดที่รับคืน" : "ยอดส่วนต่าง"}ต้องเท่ากับ ${formatBaht(expected)} ตามใบเสร็จ`;
+    if (!payDate) errors.date = `กรุณาเลือก${text.date}`;
+    if (!payFile) errors.file = payErrors.file ?? `กรุณาแนบ${text.file}`;
     setPayErrors(errors);
     return Object.keys(errors).length === 0;
   }
 
   function openConfirm() {
     setActionError("");
-    if (isAccountant && !validatePayment()) return;
+    if (needsMoneyForm && !validatePayment()) return;
     setConfirmOpen(true);
   }
 
@@ -125,8 +156,9 @@ function ApprovalDetail({ request, user }: { request: ReimburseRequest; user: Us
     setActionError("");
     try {
       let paymentInfo: PaymentInfo | undefined;
-      if (isAccountant && payFile) {
+      if (needsMoneyForm && payFile) {
         paymentInfo = {
+          direction: "PAYOUT",
           method,
           refNumber: refNumber.trim() || undefined,
           amount: Number(amount),
@@ -161,7 +193,7 @@ function ApprovalDetail({ request, user }: { request: ReimburseRequest; user: Us
     }
   }
 
-  const approveLabel = isAccountant ? "ยืนยันทำจ่าย" : "อนุมัติ";
+  const approveLabel = isAccountant ? text.button : "อนุมัติ";
 
   return (
     <>
@@ -199,8 +231,40 @@ function ApprovalDetail({ request, user }: { request: ReimburseRequest; user: Us
           </p>
         )}
 
-        {myTurn && isAccountant && (
-          <Card title="ข้อมูลการทำจ่าย" description="บันทึกหลักฐานการโอน/จ่ายเงินจริง (การโอนเงินทำนอกระบบ)">
+        {myTurn && isAccountant && mode === "CONFIRM" && (
+          <Card title="ตรวจใบเสร็จและเคลียร์เงินยืม">
+            <p className="text-body text-text">
+              ใช้จ่ายจริงพอดีกับยอดที่ยืม ({formatBaht(settlement!.borrowed)}) จึงไม่มีเงินต้องรับคืนหรือจ่ายเพิ่ม
+              ตรวจใบเสร็จด้านบนให้ครบ แล้วกด &quot;{text.button}&quot;
+            </p>
+          </Card>
+        )}
+
+        {myTurn && isAccountant && mode === "RECEIVE" && (
+          <Card title={text.card}>
+            <div className="space-y-3 text-body text-text">
+              <p>
+                พนักงานต้องคืนเงิน <span className="font-bold">{formatBaht(settlement!.refund)}</span> · วิธีคืน:{" "}
+                <span className="font-bold">{request.refundMethod ? REFUND_METHOD_LABEL[request.refundMethod] : "-"}</span>
+              </p>
+              {request.refundMethod === "CASH" ? (
+                <p className="text-caption text-text-muted">พนักงานคืนเป็นเงินสดที่ฝ่ายบัญชี — กดยืนยันเมื่อได้รับเงินครบแล้ว</p>
+              ) : request.refundSlip ? (
+                <p className="flex flex-wrap items-center gap-2 text-caption text-text-muted">
+                  สลิปโอนคืนที่พนักงานแนบ: <AttachmentChip name={request.refundSlip.name} data={request.refundSlip.data} />
+                  · ตรวจยอดในสลิปและยอดเข้าบัญชีบริษัทก่อนกดยืนยัน
+                </p>
+              ) : (
+                <p className="text-caption text-warning-strong">
+                  ไม่มีสลิปโอนคืนแนบมา — ตรวจยอดเข้าบัญชีบริษัท หรือส่งกลับให้พนักงานแนบสลิป
+                </p>
+              )}
+            </div>
+          </Card>
+        )}
+
+        {myTurn && needsMoneyForm && (
+          <Card title={text.card} description={text.hint}>
             <div className="grid gap-5 md:grid-cols-2">
               <Field label="วิธีการจ่าย" htmlFor="pay-method" required>
                 <Select
@@ -213,7 +277,13 @@ function ApprovalDetail({ request, user }: { request: ReimburseRequest; user: Us
               <Field label="เลขที่อ้างอิง" htmlFor="pay-ref" hint="เช่น เลขที่รายการโอน หรือเลขที่เช็ค (ไม่บังคับ)">
                 <Input id="pay-ref" value={refNumber} onChange={(e) => setRefNumber(e.target.value)} placeholder="เช่น TRX-20261120-001" />
               </Field>
-              <Field label="ยอดที่จ่าย (บาท)" htmlFor="pay-amount" required error={payErrors.amount}>
+              <Field
+                label={text.amount}
+                htmlFor="pay-amount"
+                required
+                error={payErrors.amount}
+                hint={mode === "PAY" ? undefined : `ต้องเท่ากับ ${formatBaht(expected)}`}
+              >
                 <Input
                   id="pay-amount"
                   type="number"
@@ -225,11 +295,11 @@ function ApprovalDetail({ request, user }: { request: ReimburseRequest; user: Us
                   onChange={(e) => setAmount(e.target.value)}
                 />
               </Field>
-              <Field label="วันที่จ่าย" htmlFor="pay-date" required error={payErrors.date}>
+              <Field label={text.date} htmlFor="pay-date" required error={payErrors.date}>
                 <Input id="pay-date" type="date" value={payDate} invalid={!!payErrors.date} onChange={(e) => setPayDate(e.target.value)} />
               </Field>
               <Field
-                label="ไฟล์หลักฐานการทำจ่าย"
+                label={text.file}
                 htmlFor="pay-file"
                 required
                 className="md:col-span-2"
@@ -282,11 +352,19 @@ function ApprovalDetail({ request, user }: { request: ReimburseRequest; user: Us
         onClose={() => setConfirmOpen(false)}
         onConfirm={handleApprove}
         loading={approving}
-        title={isAccountant ? "ยืนยันการทำจ่ายคำขอนี้?" : "ยืนยันการอนุมัติคำขอนี้?"}
+        title={isAccountant ? `${text.button}?` : "ยืนยันการอนุมัติคำขอนี้?"}
         description={
-          isAccountant
-            ? `คำขอ ${request.id} จะเปลี่ยนเป็น "จ่ายแล้ว" ยอด ${formatBaht(Number(amount) || 0)} และตัดเป็นยอดใช้จริงของหมวด`
-            : `คำขอ ${request.id} (${formatBaht(request.totalAmount)}) จะถูกส่งต่อไปยังฝ่ายบัญชีเพื่อทำจ่าย`
+          !isAccountant
+            ? settlement
+              ? `คำขอคืนเงิน ${request.id} (ใช้เกินยอดยืม ${formatBaht(settlement.extra)}) จะถูกส่งต่อไปยังฝ่ายบัญชีเพื่อจ่ายส่วนต่าง`
+              : `คำขอ ${request.id} (${formatBaht(request.totalAmount)}) จะถูกส่งต่อไปยังฝ่ายบัญชีเพื่อทำจ่าย`
+            : mode === "PAY"
+              ? `คำขอ ${request.id} จะเปลี่ยนเป็น "จ่ายแล้ว" ยอด ${formatBaht(Number(amount) || 0)} และตัดเป็นยอดใช้จริงของหมวด`
+              : mode === "RECEIVE"
+                ? `ยืนยันว่าได้รับเงินคืน ${formatBaht(expected)} แล้ว · ใบยืม ${request.advanceRefId} ถูกเคลียร์ ยอดใช้จริงของหมวดเหลือ ${formatBaht(settlement!.spent)} และ ${formatBaht(expected)} กลับเป็นงบคงเหลือ`
+                : mode === "PAY_EXTRA"
+                  ? `บันทึกจ่ายส่วนต่าง ${formatBaht(expected)} · ใบยืม ${request.advanceRefId} ถูกเคลียร์ ยอดใช้จริงของหมวดเป็น ${formatBaht(settlement!.spent)}`
+                  : `ใบยืม ${request.advanceRefId} ถูกเคลียร์ ยอดใช้จริงคงเดิม ${formatBaht(settlement!.spent)}`
         }
         confirmLabel={approveLabel}
         cancelLabel="กลับ"

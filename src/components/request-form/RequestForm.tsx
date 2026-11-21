@@ -7,7 +7,7 @@
  * Props:
  *   user           ผู้ใช้ที่ login
  *   initial        ค่าเริ่มต้นของฟอร์ม (ใหม่ = emptyForm(), แก้ไข = fromRequest(req))
- *   requestId      รหัสที่แสดงในขั้นที่ 4 (ใหม่ = nextRequestId(), แก้ไข = req.id)
+ *   requestId      รหัสที่แสดงในขั้นที่ 4: ข้อความ (แก้ไข = req.id) หรือฟังก์ชันตามประเภท (ใหม่ = nextRequestId(type))
  *   editingId      ใส่เมื่อแก้ไขคำขอเดิม → ล็อกประเภท และไม่นับยอดของคำขอนี้ตอนคิดงบคงเหลือ
  *   submitLabel    ข้อความปุ่มยืนยัน (ไม่ใส่ = เลือกตามประเภท)
  *   onSubmit(input, advance?) → id ของคำขอที่บันทึก · โยน Error ได้ (จะแสดงเป็นกล่องแดง)
@@ -65,7 +65,7 @@ export function RequestForm({
   user: User;
   initial: RequestFormValues;
   today: string;
-  requestId: string;
+  requestId: string | ((type: RequestFormValues["type"]) => string);
   editingId?: string;
   submitLabel?: string;
   onSubmit: (input: RequestInput) => string;
@@ -162,7 +162,7 @@ export function RequestForm({
           <StepDetailsClearance values={values} onChange={patch} errors={visibleErrors} data={data} user={user} today={today} />
         )}
         {step === 3 && <StepItems values={values} onChange={patch} errors={visibleErrors} today={today} />}
-        {step === 4 && <StepReview values={values} data={data} user={user} today={today} requestId={requestId} />}
+        {step === 4 && <StepReview values={values} data={data} user={user} today={today} requestId={typeof requestId === "function" ? requestId(values.type) : requestId} />}
 
         {submitError && (
           <p role="alert" className="mt-6 rounded-md border border-danger/30 bg-danger/5 px-4 py-3 text-body text-danger">

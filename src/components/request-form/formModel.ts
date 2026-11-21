@@ -18,7 +18,7 @@
  */
 import { openAttachment, resolveFileData } from "@/lib/files";
 import type { RequestInput } from "@/store/requests";
-import type { ReimburseRequest, RefundMethod, RequestType } from "@/types";
+import type { Attachment, ReimburseRequest, RefundMethod, RequestType } from "@/types";
 
 
 export interface ItemRow {
@@ -45,6 +45,8 @@ export interface RequestFormValues {
   /** คำขอตาราง A ที่ต้องการเคลียร์ */
   advanceRefId: string;
   refundMethod: RefundMethod | "";
+  /** สลิปโอนคืนเงิน (ต้องแนบเมื่อมีเงินต้องคืนและเลือกคืนแบบโอน) */
+  refundSlip?: Attachment;
   // ---- ใช้ทั้งสองแบบ ----
   /** A = จำนวนเงินขอเบิก · B = ยอดใช้จ่ายจริงตามใบเสร็จ */
   amount: string;
@@ -91,6 +93,7 @@ export function fromRequest(request: ReimburseRequest): RequestFormValues {
     endDate: request.endDate,
     advanceRefId: request.advanceRefId ?? "",
     refundMethod: request.refundMethod ?? "TRANSFER",
+    refundSlip: request.refundSlip,
     amount: String(request.totalAmount),
     purpose: request.purpose,
     items: request.items.map((i) => ({ ...i, amount: String(i.amount) })),
@@ -126,6 +129,7 @@ export function toRequestInput(values: RequestFormValues, advance?: ReimburseReq
 
   if (values.type === "CLEARANCE") {
     if (!advance) throw new Error("ไม่พบใบคำขอเบิกเดิมที่อ้างอิง");
+    const spent = items.reduce((sum, i) => sum + i.amount, 0);
     return {
       type: "CLEARANCE",
       projectId: advance.projectId,
@@ -133,7 +137,11 @@ export function toRequestInput(values: RequestFormValues, advance?: ReimburseReq
       startDate: advance.startDate,
       endDate: advance.endDate,
       advanceRefId: advance.id,
-      refundMethod: values.refundMethod || undefined,
+      advanceAmount: advance.totalAmount,
+      // วิธีคืนเงินมีความหมายเฉพาะตอนที่ใช้น้อยกว่ายอดยืม (มีเงินต้องคืน)
+      refundMethod: advance.totalAmount > spent ? values.refundMethod || undefined : undefined,
+      // สลิปโอนคืน: เก็บเฉพาะตอนมีเงินต้องคืนและคืนแบบโอน
+      refundSlip: advance.totalAmount > spent && values.refundMethod === "TRANSFER" ? values.refundSlip : undefined,
       purpose: values.purpose.trim(),
       items,
     };
@@ -163,4 +171,4 @@ export function todayISO(): string {
  */
 export function openFilePreview(fileData?: string, fileName?: string) {
   openAttachment(resolveFileData(fileName, fileData));
-}
+}
