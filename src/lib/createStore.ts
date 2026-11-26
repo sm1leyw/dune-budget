@@ -64,8 +64,10 @@ export function createPersistentStore<T>(key: string, initial: T): PersistentSto
     state = typeof next === "function" ? (next as (prev: T) => T)(state) : next;
     try {
       window.localStorage.setItem(key, JSON.stringify(state));
-    } catch {
-      // เขียนไม่ได้ก็ไม่เป็นไร ค่าในหน่วยความจำยังอัปเดต
+    } catch (error) {
+      // เขียนไม่ได้ (มักเป็นเพราะพื้นที่ localStorage เต็มจากไฟล์แนบ) → ค่าในหน่วยความจำยังอัปเดต
+      // แต่จะหายเมื่อรีเฟรช จึงแจ้งใน console ให้รู้ตัว
+      console.error(`[dune] บันทึก "${key}" ลง localStorage ไม่สำเร็จ (พื้นที่อาจเต็ม)`, error);
     }
     emit();
   }

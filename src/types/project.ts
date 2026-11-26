@@ -30,6 +30,33 @@ export interface Project {
   endDate: string;
   status: ProjectStatus;
   categories: BudgetCategory[];
+  /** ข้อมูลการเสร็จสิ้นโครงการ — มีเมื่อ status = COMPLETED (ล้างออกเมื่อเปิดโครงการอีกครั้ง) */
+  completion?: ProjectCompletion;
+  /** เอกสารจัดตั้งโครงการที่แนบตอนสร้าง (TOR, หนังสืออนุมัติ ฯลฯ) */
+  attachments?: Attachment[];
+}
+
+/** สรุปการเสร็จสิ้นโครงการ (ยอดเงินเป็นค่า ณ วันที่ปิด) */
+export interface ProjectCompletion {
+  /** เวลาที่ปิด (ISO) */
+  at: string;
+  byUserId: string;
+  /** id รายการในประวัติ (BudgetAdjustment kind = "COMPLETE") ซึ่งเก็บไฟล์หลักฐานไว้ */
+  recordId: string;
+  note?: string;
+  allocated: number;
+  used: number;
+  /** งบคงเหลือที่คืนเข้าส่วนกลาง */
+  remaining: number;
+}
+
+/** ประเภทรายการในประวัติโครงการ — ข้อมูลเก่าไม่มี kind: id ขึ้นต้น "CREATE-" = สร้างโครงการ, นอกนั้น = ปรับงบ */
+export type ProjectEventKind = "ADJUST" | "CREATE" | "COMPLETE" | "REOPEN";
+
+/** ไฟล์แนบ 1 ไฟล์ — data = Base64 Data URL หรือที่อยู่ไฟล์ เช่น "/mock-files/tor.pdf" */
+export interface Attachment {
+  name: string;
+  data?: string;
 }
 
 /** การปรับงบ 1 ครั้ง (บวก = เพิ่มงบ, ลบ = ลดงบ) */
@@ -41,4 +68,8 @@ export interface BudgetAdjustment {
   reason: string;
   byUserId: string;
   at: string;
+  /** เอกสารที่แนบมา (เอกสารอนุมัติปรับงบ / หลักฐานปิดโครงการ) */
+  attachments?: Attachment[];
+  /** ประเภทรายการ (ไม่มี = ดูจาก id ตามคำอธิบายของ ProjectEventKind) */
+  kind?: ProjectEventKind;
 }

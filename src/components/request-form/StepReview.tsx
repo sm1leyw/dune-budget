@@ -12,6 +12,7 @@
  */
 import type { ReactNode } from "react";
 import { Paperclip } from "lucide-react";
+import { AttachmentChip } from "@/components/ui";
 import { REFUND_METHOD_LABEL, REQUEST_TYPE_LABEL } from "@/constants/request";
 import { formatBaht, formatThaiDate } from "@/lib/format";
 import { getCategoryName, getProjectById } from "@/store/projects";
@@ -68,9 +69,20 @@ export function StepReview({
         )}
         <Row label="ชื่อโครงการ">{project?.name ?? "-"}</Row>
         {isClearance ? (
-          <Row label="วิธีการคืนเงิน">{values.refundMethod ? REFUND_METHOD_LABEL[values.refundMethod] : "-"}</Row>
+          <Row label="วิธีการคืนเงิน">
+            {refund > 0 && values.refundMethod
+              ? REFUND_METHOD_LABEL[values.refundMethod]
+              : refund < 0
+                ? "ไม่ต้องคืน (บริษัทโอนส่วนต่างให้)"
+                : "ไม่ต้องคืน (ใช้พอดี)"}
+          </Row>
         ) : (
           <Row label="หมวดหมู่">{getCategoryName(project, categoryId)}</Row>
+        )}
+        {isClearance && refund > 0 && values.refundMethod === "TRANSFER" && (
+          <Row label="สลิปการโอนคืนเงิน">
+            <AttachmentChip name={values.refundSlip?.name} data={values.refundSlip?.data} />
+          </Row>
         )}
       </dl>
 
@@ -87,7 +99,7 @@ export function StepReview({
             <span className="flex items-center gap-4">
               <button
                 type="button"
-                onClick={() => openFilePreview(i.fileData)}
+                onClick={() => openFilePreview(i.fileData, i.fileName)}
                 title="คลิกเพื่อเปิดดูไฟล์"
                 className="flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-caption text-primary transition hover:bg-primary-soft hover:underline"
               >
@@ -104,7 +116,7 @@ export function StepReview({
         {isClearance ? (
           <>
             <span className="text-lg text-text">
-              {refund >= 0 ? "ยอดเงินที่ต้องคืนบริษัท" : "ยอดที่บริษัทต้องจ่ายเพิ่ม"}
+              {refund > 0 ? "ยอดเงินที่ต้องคืนบริษัท" : refund < 0 ? "ยอดที่บริษัทต้องจ่ายเพิ่ม" : "ใช้พอดีกับยอดยืม ไม่มีส่วนต่าง"}
               <span className="block text-caption text-text-muted">
                 (ยืม {formatBaht(advance?.totalAmount ?? 0, { withUnit: false })} − ใช้จริง {formatBaht(spent || 0, { withUnit: false })})
               </span>

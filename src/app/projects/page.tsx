@@ -1,11 +1,13 @@
-/**
- * /projects — เจ้าของ: คนที่ 5
- * หน้าชั่วคราว: สิ่งที่ต้องทำเขียนไว้ใน config/routes.ts (แสดงบนหน้าจอด้วย)
- * เริ่มทำ: ใส่ "use client" บรรทัดแรก (ถ้าใช้ hook/useState) ลบ <PagePlaceholder /> แล้วเขียนหน้าจริงแทน
- */
 "use client";
-
-import { useMemo } from "react";
+/**
+ * /projects — โครงการและงบประมาณ · เจ้าของ: คนที่ 5
+ * -----------------------------------------------------------------------------
+ * - การ์ดสรุปงบรวม 4 ใบ (คำนวณจากโครงการที่แสดงตามตัวกรอง)
+ * - <FilterBar>: ค้นหารหัส/ชื่อโครงการ/แผนก · กรองสถานะ (ดำเนินการอยู่ / เสร็จสิ้นแล้ว)
+ * - ตารางโครงการ: ชื่อ · แผนก · ระยะเวลา · ใช้ไปแล้ว · ยอดจอง · คงเหลือ · สถานะ · ปุ่มจัดการ
+ * - บัญชีเห็นปุ่ม "เพิ่มโครงการ" และ "ปรับงบโครงการ"
+ */
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { PATHS } from "@/config/routes";
@@ -14,16 +16,32 @@ import { formatNumber, formatThaiDateLong } from "@/lib/format";
 import { useAdjustments, useProjects } from "@/store/projects";
 import { useRequests } from "@/store/requests";
 import { useCurrentUser } from "@/store/session";
+import { FilterBar } from "@/components/ui";
+import type { ProjectStatus } from "@/types";
+
+const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
+  ACTIVE: "ดำเนินการอยู่",
+  COMPLETED: "เสร็จสิ้นแล้ว",
+};
 
 export default function ProjectsPage() {
   const user = useCurrentUser();
   const projects = useProjects();
   const requests = useRequests();
   const adjustments = useAdjustments();
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
 
-  // คำนวณสรุปงบ 4 การ์ดบน
+  const visibleProjects = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return projects
+      .filter((p) => !status || p.status === status)
+      .filter((p) => !q || [p.id, p.name, ...p.departments].some((text) => text.toLowerCase().includes(q)));
+  }, [projects, search, status]);
+
+  // คำนวณสรุปงบ 4 การ์ดบน (ตามโครงการที่แสดง)
   const summary = useMemo(() => {
-    return projects.reduce(
+    return visibleProjects.reduce(
       (acc, project) => {
         const b = getProjectBudget(project, requests, adjustments);
         return {
@@ -35,7 +53,7 @@ export default function ProjectsPage() {
       },
       { allocated: 0, used: 0, reserved: 0, remaining: 0 },
     );
-  }, [projects, requests, adjustments]);
+  }, [visibleProjects, requests, adjustments]);
 
   const isAccountant = user?.role === "ACCOUNTANT";
 
@@ -97,6 +115,25 @@ export default function ProjectsPage() {
         </div>
       </div>
 
+      <FilterBar
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="ค้นหารหัส ชื่อโครงการ หรือแผนก"
+        filters={[
+          {
+            key: "status",
+            label: "สถานะ",
+            value: status,
+            onChange: setStatus,
+            options: (Object.keys(PROJECT_STATUS_LABEL) as ProjectStatus[]).map((s) => ({ value: s, label: PROJECT_STATUS_LABEL[s] })),
+          },
+        ]}
+        onClear={() => {
+          setSearch("");
+          setStatus("");
+        }}
+      />
+
       {/* 3. ตารางโครงการ */}
       <div className="rounded-2xl border border-gray-100 bg-white px-8 py-6 shadow-sm">
         <table className="w-full border-collapse text-left">
@@ -108,18 +145,19 @@ export default function ProjectsPage() {
               <th className="pb-4 text-center font-normal">ใช้ไปแล้ว</th>
               <th className="pb-4 text-center font-normal">ยอดจองรอจ่าย</th>
               <th className="pb-4 text-center font-normal">คงเหลือ</th>
+              <th className="pb-4 text-center font-normal">สถานะ</th>
               <th className="pb-4 text-center font-normal">จัดการ</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {projects.length === 0 ? (
+            {visibleProjects.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-12 text-center text-[13px] text-gray-400">
-                  ไม่มีโครงการ
+                <td colSpan={8} className="py-12 text-center text-[13px] text-gray-400">
+                  {projects.length === 0 ? "ไม่มีโครงการ" : "ไม่พบโครงการที่ตรงกับตัวกรอง"}
                 </td>
               </tr>
             ) : (
-              projects.map((project) => {
+              visibleProjects.map((project) => {
                 const budget = getProjectBudget(project, requests, adjustments);
 
                 return (
@@ -159,6 +197,17 @@ export default function ProjectsPage() {
                       {formatNumber(budget.remaining)} ฿
                     </td>
 
+                    {/* สถานะโครงการ */}
+                    <td className="py-5 px-3 whitespace-nowrap text-center align-middle">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                          project.status === "ACTIVE" ? "bg-primary-soft text-primary" : "bg-disabled text-text"
+                        }`}
+                      >
+                        {PROJECT_STATUS_LABEL[project.status]}
+                      </span>
+                    </td>
+
                     {/* จัดการ: รายละเอียด (#007F5F) / ปรับงบโครงการ (#007F5F) */}
                     <td className="py-5 pl-4 text-center align-middle whitespace-nowrap">
                       <div className="inline-flex flex-col gap-1.5 w-[96px]">
@@ -168,7 +217,7 @@ export default function ProjectsPage() {
                         >
                           รายละเอียด
                         </Link>
-                        {isAccountant && (
+                        {isAccountant && project.status === "ACTIVE" && (
                           <Link
                             href={PATHS.adjustProject(project.id)}
                             className="flex h-7 items-center justify-center rounded bg-[#007F5F] text-[11px] font-medium text-white transition hover:bg-[#006a4f]"

@@ -4,7 +4,9 @@
  * -----------------------------------------------------------------------------
  * ตาม Figma "ตรวจสอบคำขอ":
  *   แถวบน   ข้อมูลคำขอ (ซ้าย) + ลำดับขั้นการอนุมัติ (ขวา)
- *   ต่อมา    หมายเหตุการส่งกลับแก้ไข (ถ้ามี) → ยอดเงินขอเบิก → ข้อมูลเอกสารแนบ → ข้อมูลการทำจ่าย (ถ้ามี)
+ *   ต่อมา    หมายเหตุการส่งกลับแก้ไข (ถ้ามี) → ยอดเงิน → ข้อมูลเอกสารแนบ → ข้อมูลการทำจ่าย/รับเงินคืน (ถ้ามี)
+ *   คำขอคืนเงิน: แถบยอดเงินแสดง "ยอดเงินที่คืน" / "ยอดที่บริษัทจ่ายเพิ่ม" / "ใช้พอดี"
+ *               พร้อมสรุป ยอดยืม − ใช้จริง และวิธีคืนเงิน (คำนวณด้วย lib/clearance.ts)
  *   ล่างขวา  ปุ่มที่หน้าเรียกใช้ส่งมา
  *
  * Props:
@@ -21,11 +23,13 @@
  * </RequestDetail>
  */
 import type { ReactNode } from "react";
-import { FileText } from "lucide-react";
-import { Card, InfoBox, Table, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui";
+import { AttachmentChip, Card, InfoBox, Table, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui";
 import { ROLE_LABEL } from "@/constants/roles";
+import { REFUND_METHOD_LABEL } from "@/constants/request";
+import { getSettlement } from "@/lib/clearance";
 import { formatBaht, formatNumber, formatThaiDate } from "@/lib/format";
 import { getCategoryName, useProjects } from "@/store/projects";
+import { getRequestById } from "@/store/requests";
 import { getUserById } from "@/store/session";
 import type { PaymentInfo, ReimburseRequest, RequestType } from "@/types";
 import { ApprovalTimeline } from "./ApprovalTimeline";
@@ -51,16 +55,6 @@ function InfoRow({ label, children, bold = true }: { label: string; children: Re
   );
 }
 
-function FileChip({ name }: { name?: string }) {
-  if (!name) return <span className="text-caption text-text-muted">ไม่มีไฟล์แนบ</span>;
-  return (
-    <span className="inline-flex max-w-[200px] items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1 text-badge text-primary">
-      <FileText className="size-3.5 shrink-0" aria-hidden />
-      <span className="truncate">{name}</span>
-    </span>
-  );
-}
-
 export function RequestDetail({
   request,
   actions,
@@ -76,6 +70,13 @@ export function RequestDetail({
   const lastSendBack = [...request.history].reverse().find((e) => e.action === "SEND_BACK");
   const sendBackBy = lastSendBack ? getUserById(lastSendBack.byUserId) : undefined;
   const payment = request.paymentInfo;
+  const settlement = request.type === "CLEARANCE" ? getSettlement(request, getRequestById) : undefined;
+  const isRefundReceipt = payment?.direction === "REFUND_RECEIVED"; // ข้อมูลรูปแบบเก่า (บัญชีเคยบันทึกการรับเงินคืนเอง)
+  // คำขอคืนเงินที่มียอดคืน: พนักงานแนบสลิปเอง · บัญชีกดยืนยันรับเงิน (เหตุการณ์ PAY ล่าสุด)
+  const refundConfirm =
+    settlement?.kind === "REFUND" && request.status === "COMPLETED"
+      ? [...request.history].reverse().find((e) => e.action === "PAY")
+      : undefined;
 
   return (
     <div className="space-y-6">
@@ -84,15 +85,26 @@ export function RequestDetail({
           <div className="grid gap-x-10 gap-y-5 sm:grid-cols-2">
             <InfoRow label="รหัสคำขอ">{request.id}</InfoRow>
             <InfoRow label="วันที่ยื่น">{formatThaiDate(request.createdAt)}</InfoRow>
-            <InfoRow label="ผู้ยื่นขอเบิก">{requester?.name ?? request.requesterId}</InfoRow>
+            <InfoRow label={settlement ? "ผู้ยื่นคืนเงิน" : "ผู้ยื่นขอเบิก"}>{requester?.name ?? request.requesterId}</InfoRow>
             <InfoRow label="แผนก">{requester?.department ?? "-"}</InfoRow>
             <InfoRow label="ประเภทแบบฟอร์ม">{REQUEST_TYPE_LABEL[request.type]}</InfoRow>
             <InfoRow label="ช่วงระยะเวลาดำเนินการ" bold={false}>
-              {request.startDate} ถึง {request.endDate}
+              {request.startDate ? formatThaiDate(request.startDate) : "-"} ถึง {request.endDate ? formatThaiDate(request.endDate) : "-"}
             </InfoRow>
             <InfoRow label="ชื่อโครงการ">{project?.name ?? request.projectId}</InfoRow>
             <InfoRow label="หมวดหมู่">{getCategoryName(project, request.categoryId)}</InfoRow>
             {request.advanceRefId && <InfoRow label="อ้างอิงคำขอเบิก">{request.advanceRefId}</InfoRow>}
+            {settlement && (
+              <InfoRow label="วิธีการคืนเงิน">
+                {settlement.kind === "REFUND"
+                  ? request.refundMethod
+                    ? REFUND_METHOD_LABEL[request.refundMethod]
+                    : "-"
+                  : settlement.kind === "EXTRA"
+                    ? "ไม่ต้องคืน (บริษัทจ่ายส่วนต่างให้)"
+                    : "ไม่ต้องคืน (ใช้พอดี)"}
+              </InfoRow>
+            )}
           </div>
           <p className="mb-3 mt-6 font-bold text-text">รายละเอียด/วัตถุประสงค์ :</p>
           <InfoBox className="min-h-[88px] whitespace-pre-wrap text-caption">{request.purpose || "-"}</InfoBox>
@@ -112,13 +124,29 @@ export function RequestDetail({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg bg-primary px-8 py-7 text-text-inverse">
-        <span className="text-section font-bold">{request.type === "CLEARANCE" ? "ยอดเงินขอคืน" : "ยอดเงินขอเบิก"}</span>
-        <span className="text-[28px] font-bold leading-tight">{formatBaht(request.totalAmount)}</span>
-      </div>
+      {settlement ? (
+        <div className="rounded-lg bg-primary px-8 py-7 text-text-inverse">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <span className="text-section font-bold">
+              {settlement.kind === "REFUND" ? "ยอดเงินที่คืน" : settlement.kind === "EXTRA" ? "ยอดที่บริษัทจ่ายเพิ่ม" : "ใช้พอดีกับยอดยืม"}
+            </span>
+            <span className="text-[28px] font-bold leading-tight">
+              {formatBaht(settlement.kind === "REFUND" ? settlement.refund : settlement.extra)}
+            </span>
+          </div>
+          <p className="mt-1 text-caption opacity-90">
+            ยอดยืม ({request.advanceRefId}) {formatBaht(settlement.borrowed)} − ใช้จ่ายจริงตามใบเสร็จ {formatBaht(settlement.spent)}
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg bg-primary px-8 py-7 text-text-inverse">
+          <span className="text-section font-bold">ยอดเงินขอเบิก</span>
+          <span className="text-[28px] font-bold leading-tight">{formatBaht(request.totalAmount)}</span>
+        </div>
+      )}
 
       <Card>
-        <p className="mb-2 text-caption font-bold text-text">ข้อมูลเอกสารแนบ</p>
+        <p className="mb-2 text-caption font-bold text-text">{settlement ? "ใบเสร็จค่าใช้จ่ายจริง" : "ข้อมูลเอกสารแนบ"}</p>
         <Table>
           <THead>
             <TR>
@@ -133,10 +161,10 @@ export function RequestDetail({
             {request.items.map((item) => (
               <TR key={item.id}>
                 <TD>{item.name}</TD>
-                <TD className="whitespace-nowrap">{formatThaiDate(item.date)}</TD>
+                <TD className="whitespace-nowrap">{item.date ? formatThaiDate(item.date) : "-"}</TD>
                 <TD className="whitespace-nowrap">{formatNumber(item.amount)}</TD>
                 <TD>
-                  <FileChip name={item.fileName} />
+                  <AttachmentChip name={item.fileName} data={item.fileData} />
                 </TD>
               </TR>
             ))}
@@ -144,13 +172,53 @@ export function RequestDetail({
         </Table>
       </Card>
 
-      {payment && (
+      {settlement?.kind === "REFUND" && (
         <Card>
-          <p className="mb-2 text-caption font-bold text-text">ข้อมูลการทำจ่าย</p>
+          <p className="mb-2 text-caption font-bold text-text">ข้อมูลการคืนเงินของพนักงาน</p>
           <Table>
             <THead>
               <TR>
-                <TH>วิธีการจ่าย</TH>
+                <TH>วิธีคืนเงิน</TH>
+                <TH>จำนวนเงิน</TH>
+                <TH>หลักฐานการคืน</TH>
+                <TH>การยืนยันของบัญชี</TH>
+              </TR>
+            </THead>
+            <TBody>
+              <TR>
+                <TD>{request.refundMethod ? REFUND_METHOD_LABEL[request.refundMethod] : "-"}</TD>
+                <TD className="whitespace-nowrap">{formatNumber(settlement.refund)}</TD>
+                <TD>
+                  {request.refundMethod === "CASH" ? (
+                    <span className="text-caption text-text-muted">คืนเป็นเงินสด</span>
+                  ) : (
+                    <AttachmentChip name={request.refundSlip?.name} data={request.refundSlip?.data} />
+                  )}
+                </TD>
+                <TD className="text-caption">
+                  {refundConfirm ? (
+                    <span className="text-primary">
+                      รับเงินแล้ว · {getUserById(refundConfirm.byUserId)?.name ?? refundConfirm.byUserId} · {formatThaiDate(refundConfirm.at)}
+                    </span>
+                  ) : (
+                    <span className="text-text-muted">รอบัญชีตรวจสอบ</span>
+                  )}
+                </TD>
+              </TR>
+            </TBody>
+          </Table>
+        </Card>
+      )}
+
+      {payment && (
+        <Card>
+          <p className="mb-2 text-caption font-bold text-text">
+            {isRefundReceipt ? "ข้อมูลการรับเงินคืน" : settlement ? "ข้อมูลการจ่ายส่วนต่าง" : "ข้อมูลการทำจ่าย"}
+          </p>
+          <Table>
+            <THead>
+              <TR>
+                <TH>{isRefundReceipt ? "วิธีที่รับเงิน" : "วิธีการจ่าย"}</TH>
                 <TH>วันที่</TH>
                 <TH>จำนวนเงิน</TH>
                 <TH>เอกสารแนบ</TH>
@@ -165,7 +233,7 @@ export function RequestDetail({
                 <TD className="whitespace-nowrap">{formatThaiDate(payment.date)}</TD>
                 <TD className="whitespace-nowrap">{formatNumber(payment.amount)}</TD>
                 <TD>
-                  <FileChip name={payment.fileName} />
+                  <AttachmentChip name={payment.fileName} data={payment.fileData} />
                 </TD>
               </TR>
             </TBody>

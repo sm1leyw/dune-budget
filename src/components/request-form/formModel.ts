@@ -16,8 +16,9 @@
  *   sumItems(items)              → ผลรวมยอดเงินทุกแถว (แถวที่พิมพ์ผิดนับเป็น 0)
  *   todayISO()                   → วันนี้แบบ "2026-11-07"
  */
+import { openAttachment, resolveFileData } from "@/lib/files";
 import type { RequestInput } from "@/store/requests";
-import type { ReimburseRequest, RefundMethod, RequestType } from "@/types";
+import type { Attachment, ReimburseRequest, RefundMethod, RequestType } from "@/types";
 
 
 export interface ItemRow {
@@ -44,6 +45,8 @@ export interface RequestFormValues {
   /** คำขอตาราง A ที่ต้องการเคลียร์ */
   advanceRefId: string;
   refundMethod: RefundMethod | "";
+  /** สลิปโอนคืนเงิน (ต้องแนบเมื่อมีเงินต้องคืนและเลือกคืนแบบโอน) */
+  refundSlip?: Attachment;
   // ---- ใช้ทั้งสองแบบ ----
   /** A = จำนวนเงินขอเบิก · B = ยอดใช้จ่ายจริงตามใบเสร็จ */
   amount: string;
@@ -90,6 +93,7 @@ export function fromRequest(request: ReimburseRequest): RequestFormValues {
     endDate: request.endDate,
     advanceRefId: request.advanceRefId ?? "",
     refundMethod: request.refundMethod ?? "TRANSFER",
+    refundSlip: request.refundSlip,
     amount: String(request.totalAmount),
     purpose: request.purpose,
     items: request.items.map((i) => ({ ...i, amount: String(i.amount) })),
@@ -120,11 +124,12 @@ export function toRequestInput(values: RequestFormValues, advance?: ReimburseReq
     amount: parseAmount(i.amount),
     date: i.date,
     fileName: i.fileName,
-    fileData: i.fileData, // เพิ่ม fileData เพื่อส่งให้ backend (ตอนนี้ยังไม่มี backend จึงเก็บแค่ชื่อไฟล์)
+    fileData: i.fileData, // Data URL ของไฟล์ (ช่วงยังไม่มี backend เก็บไว้ใน localStorage)
   }));
 
   if (values.type === "CLEARANCE") {
     if (!advance) throw new Error("ไม่พบใบคำขอเบิกเดิมที่อ้างอิง");
+    const spent = items.reduce((sum, i) => sum + i.amount, 0);
     return {
       type: "CLEARANCE",
       projectId: advance.projectId,
@@ -132,7 +137,11 @@ export function toRequestInput(values: RequestFormValues, advance?: ReimburseReq
       startDate: advance.startDate,
       endDate: advance.endDate,
       advanceRefId: advance.id,
-      refundMethod: values.refundMethod || undefined,
+      advanceAmount: advance.totalAmount,
+      // วิธีคืนเงินมีความหมายเฉพาะตอนที่ใช้น้อยกว่ายอดยืม (มีเงินต้องคืน)
+      refundMethod: advance.totalAmount > spent ? values.refundMethod || undefined : undefined,
+      // สลิปโอนคืน: เก็บเฉพาะตอนมีเงินต้องคืนและคืนแบบโอน
+      refundSlip: advance.totalAmount > spent && values.refundMethod === "TRANSFER" ? values.refundSlip : undefined,
       purpose: values.purpose.trim(),
       items,
     };
@@ -156,31 +165,10 @@ export function todayISO(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// funtion ดูไฟล์แนบในแท็บใหม่ — รับเข้า: fileData (Base64 Data URL) หรือ undefined
-/** เปิดดูไฟล์แนบ (Base64 Data URL) ในแท็บใหม่ */
-export function openFilePreview(fileData?: string) {
-  if (!fileData) {
-    alert("ไม่พบข้อมูลไฟล์สำหรับแสดงตัวอย่าง");
-    return;
-  }
-
-  if (fileData.startsWith("data:")) {
-    const [header, base64Data] = fileData.split(",");
-    const mimeType = header.split(":")[1].split(";")[0];
-    const byteCharacters = atob(base64Data);
-    const byteNumbers = new Array(byteCharacters.length);
-
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: mimeType });
-    const blobUrl = URL.createObjectURL(blob);
-
-    window.open(blobUrl, "_blank", "noopener,noreferrer");
-    return;
-  }
-
-  window.open(fileData, "_blank", "noopener,noreferrer");
-}
+/**
+ * เปิดดูไฟล์แนบในแท็บใหม่ — รับเข้า: fileData (Data URL หรือที่อยู่ไฟล์), ชื่อไฟล์ (ใช้หาไฟล์ตัวอย่าง)
+ * ใช้ openAttachment() ของ lib/files ซึ่งเปิดแบบ synchronous จึงไม่โดนเบราว์เซอร์บล็อก popup
+ */
+export function openFilePreview(fileData?: string, fileName?: string) {
+  openAttachment(resolveFileData(fileName, fileData));
+}

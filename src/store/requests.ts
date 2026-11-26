@@ -8,6 +8,7 @@
  *   useRequests()                      hook → ReimburseRequest[] ทั้งหมด (ไม่รวมที่ยกเลิกแล้ว)
  *   getRequestById(id)                 → ReimburseRequest | undefined (ข้อมูลดิบ รวมที่ยกเลิก — ใช้ตอนแก้ข้อมูล)
  *   useRequest(id)                     hook → ReimburseRequest | undefined (ยกเลิกแล้ว = undefined)
+ *   nextRequestId(type)                → รหัสถัดไป: คำขอเบิก "REQ-2026-0015" · คำขอคืนเงิน "RFD-2026-0002"
  *   createRequest(input, user)         → ReimburseRequest ที่สร้าง (คนที่ 2 เรียกตอนกดยืนยัน)
  *   resubmitRequest(id, input, user)   → แก้ไขแล้วยื่นใหม่ (คนที่ 2 ใช้ในหน้าแก้ไข)
  *   cancelRequest(id, user)            → ยกเลิกคำขอ (ได้เฉพาะตอนถูกส่งกลับ)
@@ -21,15 +22,16 @@ import { useMemo } from "react";
 import { createPersistentStore } from "@/lib/createStore";
 import { canCancel, canEdit, getInitialStatus } from "@/lib/workflow";
 import { nowISO } from "@/lib/format";
+import { getRoutingAmount } from "@/lib/clearance";
 import { INITIAL_REQUESTS } from "@/data/mock/requests";
-import type { ExpenseItem, ReimburseRequest, User, RefundMethod } from "@/types";
+import type { ExpenseItem, ReimburseRequest, User } from "@/types";
 
 export const requestsStore = createPersistentStore<ReimburseRequest[]>("dune_requests", INITIAL_REQUESTS);
 
 /** ข้อมูลที่ฟอร์มต้องส่งมา (ระบบเติม id, ผู้ยื่น, สถานะ, วันที่ ให้เอง) */
 export type RequestInput = Pick<
   ReimburseRequest,
-  "type" | "projectId" | "categoryId" | "purpose" | "startDate" | "endDate" | "advanceRefId" | "refundMethod"
+  "type" | "projectId" | "categoryId" | "purpose" | "startDate" | "endDate" | "advanceRefId" | "advanceAmount" | "refundMethod" | "refundSlip"
 > & { items: ExpenseItem[] };
 
 /** hook: คำขอทั้งหมดที่ยังไม่ถูกยกเลิก (กรองต่อด้วย useMemo ในหน้าของตัวเอง) */
@@ -49,14 +51,22 @@ export function useRequest(id: string): ReimburseRequest | undefined {
   return useMemo(() => all.find((r) => r.id === id), [all, id]);
 }
 
-/** สร้างรหัสคำขอถัดไป เช่น "REQ-2026-0006" (ไม่ซ้ำแม้มีคำขอถูกยกเลิก) */
-export function nextRequestId(year = new Date().getFullYear()): string {
+/** คำนำหน้ารหัสตามประเภท (ตาม Figma: คำขอคืนเงินใช้ RFD) */
+const ID_PREFIX = { ADVANCE: "REQ", CLEARANCE: "RFD" } as const;
+
+/**
+ * สร้างรหัสคำขอถัดไป เช่น "REQ-2026-0015" / "RFD-2026-0002"
+ * เลขลำดับนับแยกตามคำนำหน้า = เลขมากสุดที่มีอยู่ + 1 (ไม่ซ้ำแม้มีคำขอถูกยกเลิก)
+ */
+export function nextRequestId(type: ReimburseRequest["type"] = "ADVANCE", year = new Date().getFullYear()): string {
+  const prefix = ID_PREFIX[type];
   const max = requestsStore
     .getState()
+    .filter((r) => r.id.startsWith(`${prefix}-`))
     .map((r) => Number(r.id.split("-").pop()))
     .filter((n) => !Number.isNaN(n))
     .reduce((a, b) => Math.max(a, b), 0);
-  return `REQ-${year}-${String(max + 1).padStart(4, "0")}`;
+  return `${prefix}-${year}-${String(max + 1).padStart(4, "0")}`;
 }
 
 const sumItems = (items: ExpenseItem[]) => items.reduce((sum, i) => sum + i.amount, 0);
@@ -71,10 +81,11 @@ export function createRequest(input: RequestInput, user: User): ReimburseRequest
   const totalAmount = sumItems(input.items);
   const request: ReimburseRequest = {
     ...input,
-    id: nextRequestId(),
+    id: nextRequestId(input.type),
     requesterId: user.id,
     totalAmount,
-    status: getInitialStatus(user.role, totalAmount),
+    // คำขอคืนเงิน: ตัดสินสายอนุมัติจากยอดที่บริษัทต้องจ่ายเพิ่ม (lib/clearance.ts)
+    status: getInitialStatus(user.role, getRoutingAmount({ ...input, totalAmount } as ReimburseRequest, getRequestById)),
     createdAt: time,
     updatedAt: time,
     history: [{ action: "SUBMIT", byUserId: user.id, at: time }],
@@ -97,7 +108,7 @@ export function resubmitRequest(id: string, input: RequestInput, user: User): Re
     ...current,
     ...input,
     totalAmount,
-    status: getInitialStatus(user.role, totalAmount),
+    status: getInitialStatus(user.role, getRoutingAmount({ ...current, ...input, totalAmount }, getRequestById)),
     sentBackNote: undefined,
     updatedAt: time,
     history: [...current.history, { action: "RESUBMIT", byUserId: user.id, at: time }],

@@ -23,6 +23,8 @@ export interface ValidationContext {
   advance?: ReimburseRequest;
   /** มีใบยืมให้เลือกเคลียร์ไหม (ตาราง B) */
   hasEligibleAdvance: boolean;
+  /** ตาราง B: งบคงเหลือของหมวดของใบยืม (ยอดที่บริษัทจ่ายเพิ่มได้ไม่เกินนี้) */
+  clearanceExtraLimit?: number;
 }
 
 function validateType(values: RequestFormValues, ctx: ValidationContext): FormErrors {
@@ -50,7 +52,17 @@ function validateDetails(values: RequestFormValues, ctx: ValidationContext): For
   } else {
     if (!values.advanceRefId || !ctx.advance) e.advanceRefId = "กรุณาเลือกใบคำขอเบิกเดิม";
     if (Number.isNaN(amount) || amount <= 0) e.amount = "กรุณากรอกยอดใช้จ่ายจริงเป็นตัวเลขมากกว่า 0";
-    if (!values.refundMethod) e.refundMethod = "กรุณาเลือกวิธีการคืนเงิน";
+    else if (ctx.advance) {
+      const extra = amount - ctx.advance.totalAmount;
+      if (extra > 0 && ctx.clearanceExtraLimit !== undefined && extra > ctx.clearanceExtraLimit) {
+        e.amount = `ใช้เกินยอดยืม ${formatBaht(extra)} แต่งบคงเหลือของหมวดนี้มีแค่ ${formatBaht(Math.max(0, ctx.clearanceExtraLimit))}`;
+      }
+      // ต้องเลือกวิธีคืนเงินเฉพาะตอนที่มีเงินต้องคืน (ใช้น้อยกว่ายอดยืม)
+      if (amount < ctx.advance.totalAmount && !values.refundMethod) e.refundMethod = "กรุณาเลือกวิธีการคืนเงิน";
+      // คืนแบบโอน → พนักงานต้องแนบสลิปโอนคืนเอง (บัญชีแค่ตรวจแล้วยืนยันรับเงิน)
+      if (amount < ctx.advance.totalAmount && values.refundMethod === "TRANSFER" && !values.refundSlip)
+        e.refundSlip = "กรุณาแนบสลิปการโอนคืนเงิน";
+    }
     if (!values.purpose.trim()) e.purpose = "กรุณากรอกหมายเหตุ / คำอธิบายการคืนเงิน";
   }
   return e;
@@ -102,14 +114,5 @@ export function validateAll(values: RequestFormValues, ctx: ValidationContext): 
 }
 
 // ------------------------------------------------------------------ ไฟล์แนบ
-export const MAX_FILE_SIZE = 10 * 1024 * 1024;
-export const ACCEPTED_FILE_TYPES = ["application/pdf", "image/jpeg", "image/png"];
-export const ACCEPT_ATTR = ".pdf,.jpg,.jpeg,.png";
-
-/** ตรวจไฟล์แนบ — ส่งออก: ข้อความผิดพลาด หรือ null ถ้าใช้ได้ */
-export function validateFile(file: { name: string; type: string; size: number }): string | null {
-  const okType = ACCEPTED_FILE_TYPES.includes(file.type) || /\.(pdf|jpe?g|png)$/i.test(file.name);
-  if (!okType) return "รองรับเฉพาะไฟล์ PDF, JPG และ PNG";
-  if (file.size > MAX_FILE_SIZE) return "ไฟล์มีขนาดเกิน 10 MB";
-  return null;
-}
+// ย้ายไปไว้ที่ lib/files.ts เพื่อใช้ร่วมกันทุกหน้า (re-export ไว้ให้โค้ดเดิมใช้ต่อได้)
+export { ACCEPT_ATTR, ACCEPTED_FILE_TYPES, MAX_FILE_SIZE, validateFile } from "@/lib/files";

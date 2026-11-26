@@ -17,6 +17,8 @@ export type RequestStatus =
   | "CANCELLED"; // ผู้ขอยกเลิกคำขอ (ยกเลิกได้เฉพาะตอนถูกส่งกลับแก้ไข)
 
 
+import type { Attachment } from "./project";
+
 /** วิธีคืนเงินส่วนต่าง (ตาราง B เท่านั้น) — ข้อความแสดงผลอยู่ใน constants/request.ts */
 export type RefundMethod = "TRANSFER" | "CASH";
 
@@ -30,9 +32,9 @@ export interface ExpenseItem {
   amount: number;
   /** วันที่แบบ ISO "2026-11-02" — แสดงผลด้วย formatThaiDate() */
   date: string;
-  /** ชื่อไฟล์หลักฐาน (ช่วง frontend เก็บแค่ชื่อไฟล์) */
+  /** ชื่อไฟล์หลักฐาน */
   fileName?: string;
-  /** ข้อมูลไฟล์แบบ Base64 Data URL สำหรับเปิดดูตัวอย่าง */
+  /** ไฟล์สำหรับเปิดดู: Base64 Data URL (ไฟล์ที่ผู้ใช้แนบ) หรือที่อยู่ไฟล์ เช่น "/mock-files/x.pdf" (ข้อมูลตัวอย่าง) */
   fileData?: string;
 }
 
@@ -50,6 +52,8 @@ export interface RequestEvent {
 }
 
 export interface PaymentInfo {
+  /** PAYOUT = บริษัทจ่ายเงินออก (ค่าเริ่มต้น) · REFUND_RECEIVED = บริษัทรับเงินคืนจากพนักงาน */
+  direction?: "PAYOUT" | "REFUND_RECEIVED";
   method: "CASH" | "CHECK" | "TRANSFER";
   refNumber?: string;
   amount: number;
@@ -60,7 +64,7 @@ export interface PaymentInfo {
 
 
 export interface ReimburseRequest {
-  /** รหัสคำขอ เช่น "REQ-2026-0001" (สร้างด้วย nextRequestId()) */
+  /** รหัสคำขอ: คำขอเบิก "REQ-2026-0001" · คำขอคืนเงิน "RFD-2026-0001" (สร้างด้วย nextRequestId()) */
   id: string;
   type: RequestType;
   /** รหัสโครงการ เช่น "DUNE-001" → หาข้อมูลโครงการด้วย getProjectById() */
@@ -79,6 +83,8 @@ export interface ReimburseRequest {
   totalAmount: number;
   /** ตาราง B เท่านั้น: อ้างอิงคำขอตาราง A ที่ยืมเงินไป */
   advanceRefId?: string;
+  /** ตาราง B เท่านั้น: ยอดที่ยืมไป (บันทึกจากใบยืมตอนยื่น) — ยอดคืน/จ่ายเพิ่มคำนวณด้วย getSettlement() ใน lib/clearance.ts */
+  advanceAmount?: number;
   status: RequestStatus;
   /** หมายเหตุล่าสุดตอนถูกส่งกลับแก้ไข */
   sentBackNote?: string;
@@ -86,7 +92,10 @@ export interface ReimburseRequest {
   updatedAt: string;
   /** ประวัติการกระทำ เรียงจากเก่าไปใหม่ */
   history: RequestEvent[];
+  /** หลักฐานการจ่ายเงินออกที่บัญชีบันทึกตอนปิดคำขอ (คำขอเบิก / จ่ายส่วนต่างของคำขอคืนเงิน) — กรณีรับเงินคืนไม่มี */
   paymentInfo?: PaymentInfo;
-  /** เพิ่มตรงนี้: ตาราง B คืนเงินส่วนต่าง (ใส่ ? ไว้) */
+  /** ตาราง B ที่มียอดต้องคืนเท่านั้น: วิธีที่พนักงานจะคืนเงินส่วนต่าง */
   refundMethod?: RefundMethod;
+  /** ตาราง B ที่คืนเงินแบบโอน: สลิปโอนคืนที่พนักงานแนบตอนยื่น (บัญชีตรวจแล้วกดยืนยันรับเงินคืน ไม่ต้องแนบเอง) */
+  refundSlip?: Attachment;
 }
